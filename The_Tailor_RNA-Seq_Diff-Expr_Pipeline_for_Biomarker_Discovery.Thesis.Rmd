@@ -1,0 +1,1069 @@
+---
+title: 'The Tailor RNA-Seq Comparative Analysis Pipeline: '
+subtitle: 'a De Novo Disease Biomarker Discovery Workflow that Facilitates High Performance Computing Cluster Use'
+author:
+   -name: 'Submitted to the Office of Graduate Studies, '
+   affiliation: 'University of Massachusetts Boston,'
+   email: 'in partial fulfillment of the requirements for the degree of'
+date: "November 2019"
+params:
+   year: '2019'
+   degree: 'MASTER OF SCIENCE'
+   field: 'Masters of Biology Program'
+   chair: 'Professor and Chair of Biology Richard Kesseli'
+   advisor: 'Assistant Professor Todd Riley'
+   committee1: 'Professor Jill Macoska, Director of CPCT'
+   committee2: 'Professor Alexey Veraksa'
+   committee3: 'Associate Professor Kourosh Zarringhalam'
+abstract: |
+   High-Throughput Sequencing is one of the most promising tools available to researchers united by the common goals of personalized medicine. The first step in the development of targeted interventions for genetic diseases is identifying the genomic features common to a particular phenotype. Identifying a unique transcriptional signature through comparative analysis of RNA-Seq data provides a glimpse of the regulatory machinery responsible for the presentation of a diseased phenotype. But the development of a standardized downstream analysis procedure for identifying clinically informative feature from the massive sequence libraries produced during one RNA-Seq experiment remains an open area of research and requires computational resources that necessitate the use of a high-performance computing cluster. These circumstances create a skills-gap bottleneck that require molecular biologists to develop a new skill set with extensive knowledge of computer programming and software engineering. This bottleneck is further exacerbated by the difficulty involved in identifying high-confidence population-level biomarkers from small sample-size experiments with low statistical power. The Tailor Pipeline was developed to address these issues and facilitate biomarker discovery from comparative RNA-Seq analyses between two or more conditions. The Tailor pipeline is operated  via two word commands that simplify the use of high performance computing clusters. Tailor produces a visualization of the salient features of an RNA-Seq data set along with sorted, human readable files listing potential biomarkers calls identified from hypothesis tests of the pooled expression levels between two or more conditions. In a recent comparative analysis, Tailor analyzed RNA extracted from urine samples provided by patients with fibrosis-associated lower urinary tract syndrome (LUTS) and a non-symptomatic control group, and identified 370 genes and 30 biochemical pathways that were significantly differentially expressed between the groups. Repetitive analysis with other commonly used tool packages was employed to refine this list to 44 biomarkers that may serve as noninvasive diagnostics for fibrosis-associated LUTS, and potential targets for drug development. Tailor's sensitivity to differential gene expression profiles allows biologists to identify the causal, genetic mechanisms that contribute to diseased phenotypes from non-invasive tests.
+titlepage: true
+copyrightpage: true
+approvalpage: true
+abstractpage: true
+fontsize: 12pt
+mainfont: DejaVu Sans
+fontfamily: arev
+linestretch: 1.5
+toc-depth: 3
+toc: true
+lof: true
+lot: true
+documentclass: Dissertate
+bibliography: /media/drew/easystore/umb_triley/Thesis/dissertate-UMASS/references.bib
+biblio-style: apalike
+geometry: "left=1.25inch, right=1inch, top=1inch, bottom=1inch"
+output: 
+  pdf_document:
+      latex_engine: xelatex
+      includes:
+        in_header: /media/drew/easystore/umb_triley/Thesis/dissertate-UMASS/preamble.tex
+      keep_tex: yes
+      fig_caption: yes
+      number_sections: yes
+      toc: yes
+      citation_package: biblatex
+      df_print: kable
+---
+
+```{r global_options, include=FALSE}
+## Do NOT Remove / adds params to doc
+cat(paste0("\\usepackage{xspace}\n",
+      "\\newcommand{\\degree}{",params$degree,"\\xspace}\n",
+      "\\newcommand{\\field}{",params$field,"\\xspace}\n",
+      "\\newcommand{\\chairperson}{", params$chair, "\\xspace}\n",
+      "\\newcommand{\\advisor}{", params$advisor, "\\xspace}\n",
+      "\\newcommand{\\committeeone}{", params$committee1, "\\xspace}\n",
+      "\\newcommand{\\committeetwo}{", params$committee2, "\\xspace}\n",
+      "\\newcommand{\\committeethree}{", params$committee3, "\\xspace}\n",
+      "\\newcommand{\\abstract}{", params$abstract, "\\xspace}\n",
+      "% Tables
+      \\usepackage{booktabs}
+      \\usepackage{threeparttable}
+      \\usepackage{array}
+      \\newcolumntype{x}[1]{%
+      >{\\centering\\arraybackslash}m{#1}}%
+      \\usepackage{placeins}
+      \\usepackage{chngcntr}
+      \\counterwithin{figure}{chapter}
+      \\counterwithin{table}{chapter}
+      \\usepackage[makeroom]{cancel}\n"
+      ),file = "preamble.tex")
+```
+
+## Aknowledgements
+To my advisor, Professor Todd Riley, I am truly grateful for your guidance, patience, and mentorship the past four and a half years. My time at the Riley lab has been increibly rewarding intellectually in a way no other job has ever been for me. It was a pleasure to learn from you, and the time we've spent together has meant a lot to me.
+
+I would not have made it through this process without the support of my wife, Lisa. Thank you for dealing with all that I have put you through. Thank you for being always being patient and supportive. I am incredibly lucky to have you in my life.
+
+My mother-in-law Lourdes, who has been a better mother to me and a better grandmother to Gloria than I have ever experienced. You have made personal sacrifices that made it possible for me to go to take care of my dueling responsibilities many times.
+
+Finally, to my daughter Gloria, thank you for hitting the power button on my computer with a big smile on your face and being the one person for whom I happily tear myself from my computer screen.
+
+# LIST OF FIGURES
+
+# LIST OF ABBREVIATIONS
+
+
+# CHAPTER 1
+## INTRODUCTION
+### Personalized Medicine and Translational Bioinformatics
+    Decreases in the cost of high-throughput sequencing technology have been a major driver in the creation and advancement of a new branch of the biomedical industry called personalized medicine. Personalized medicine generally referes to the application of genomic and proteomic information derived from high throughput technologies to guide medical decisions. This revolutionary ethos is an adjustment to the previous standard of empirical diagnonsis which relies on medical providers experiences with similar cases. The rising cost of medical treatment in the U.S. and the proportion of patients that are not successfully treated during during an initial diagnosis have created a demand for personalized medicine. An analysis from 2011 characterized the US healthcare industry as the most expensive and least effective compared to those of other developed nations [@UShealthcare]. In the US there is a stratification of the mortality rates across different genotypes of a disease. The stratification of mortality rate across different genotypes of disease also extends across racial and cultural lines as well. Differential outcomes exist for minorities in comparison to whites for nearly every disease for which data is collected with significantly higher rates of morbity and mortality for African Americans and Native Americans [@UnequalTreatment]. The social and economic concerns related to the quality of healthcare have provided an opportunity for a new ethos in the biomedical industry.These differential outcomes require individualized treatments. 
+
+   The paradigm shift towards a personalized, proactive and preventative approach has been made possible by concomitant advancement and innovation in high-throughput technologies. The problems in healthcare can be addressed through the application of clinical bioinformatics technologies. Translational bioinformatics is one of the vehicles driving innovation in the field of personalized medicine via the development of analytical and interpretive methods designed to extract valuable information from high throughput data [@PersonalBioinformatics].  Identifying the underlying genotypic features that contribute to differential outcomes associated with different phenotypes is the first step in the process of developing targeted interventions. Identifying a unique transcriptional signature through comparative
+analysis of RNA-Seq data provides a glimpse of the regulatory machinery responsible for the
+presentation of a diseased phenotype. Comparative analysis of genomic, ribonucleic, methylomic, transcriptomic, and proteomic high-throughput data libraries can provide valuable insight into disease etiology. High-throughput sequencing technologies can be employed to identify genotypic sub-populations in diseased populations as well as treatment response sub-populations. Analysis of high throughput data provide an opportunity to identify novel disease biomarkers, enable earlier detection, inform future drug design, and ultimately save lives. The applications of research in the field of personalized medicine include the development of diagnostics for earlier disease detection, procurement of a catalouge of biomarkers that influence the probability of developing a disease, and incorporation of hollistic preventative care based on a better understanding of disease development.
+
+   But the promises of personalized medicine remain unfullfilled despite recent decreases in the cost of sequencing. Large sample studies are still prohibitiively expensive for many small academic labs. Experiments are ultimately performed with small sample-sizes associated with low statistical power leading to a reproducibility crisis. This is exacerbated by the difficulty and complexity of identifying high-confidence, population-level biomarkers from an experiment with only a handful of samples. Identifying clinically informative features from the massive sequence libraries produced by a single comparative experiment exceeds the computational capibilities of most laptops and personal computers necessitating the use of high-performance computing clusters (HPCC) with a standardized downstream analysis procedures. But the development of standardized downstream analysis procedure for identifying clinically informative feature from the massive sequence libraries produced during high-throughput experiments remains an open area of research. These circumstances produce a skills-gap bottleneck in the personalized medicine pipeline where biomedical researchers and molecular biologists are forced to develop computational proficiency, programming expertise, and extensive domain knowledge of statistical methods. 
+
+### Introduction to Tailor Pipeline
+   The Tailor RNA-Seq Pipeline was developed to address some of these issues in the biomedical research personalized medicine pipeline. Tailor is an end-to-end tool-suite that produces a set of biomarkers from hypothesis tests of the gene expression profiles of the pooled samples between two or more individual conditions. Tailor provides a comparative analysis workflow for *de novo* disease biomarker discovery that facilitates the use of HPCCs for translational genomics research. Tailor is an easily installed analysis environment operated via command line interface (CLI). Tailor's analysis is performed via multi-step, recursive, in-parallel, computational jobs submitted to a high performance computing cluster. The individual steps of the pipeline are initiated via two word commands (“tailor **bcl2fastq**," “tailor **FastQC**") that mask the complexity of batch-job resource requests issued to the scheduler of a HPCC (currently compatible with **platform LSF**, **Sun Grid Engine (SGE)**, and **Slurm** schedulers). The resource requests of every step have been optimized to prevent unecessary job hang (wait-times), allocate sufficient computational resources, and prevent job failure. The resource request values were optimized for the Massachusetts Green High Performance Computing Cluster (MGHPCC), a high-traffic cluster used by the University of Massachusetts, Boston University, Harvard University, MIT, Northeastern University and the Commonwealth of Massachusetts. Tailor drastically reduces the difficulty of analyzing RNA-Seq data via HPCC by automating and parallelizing the steps of the analysis.
+       
+# CHAPTER 2
+## Experimental Methods
+### The Tailor RNA-Seq Comparative Analysis Workflow
+   The Tailor pipeline simplifies and extends the Tophat-Cufflinks workflow [@TophatAndCufflinks]. Tailor pools the RNA-Sequence data libraries of phenotypically similar organisms together to compare against the pooled libraries of other time points in time series experiments or phenotypically disimilar organsims. Tailor hypothesis tests the distributions of the gene expression of the groups against each other in order to identify statistically significant features that are common amongst the organisms sharing a phenotype and different from those lacking the phenotype. For disease testing, a comparative analysis is performed of the pooled RNA sequence libraries from a group of samples sharing a condition or disease against a group of archetypally healthy samples serving as a control group. The genes that are identified as statistically significantly differentially expressed serve as a preliminary group of biomarker genes. Tailor's workflow operates under the assumption that phenotypically similar organisms share genotypic features that control transcriptional responses and are detectable via comparative analysis of high throughput RNA-Seq. Tailor can refine the prediction set via repetitive analysis of several other commonly used tools for hypothesis testing that have been integrated into the pipeline. Tailor provides a "statistical sanity check" of the analysis in the form of a visualization of the salient features of the RNA-Seq data set along with sorted, human readable files listing potential biomarkers calls and other pertinent information compiled during the hypothesis tests. Tailor workflow can be generalized to encompass five general steps that include:
+     1.  RNA-Seq library preparation/assembly
+     2.  Gene expression quantification 
+     3.  Significant differential gene expression detection
+     4.  Visualization of the salient features of the analysis
+     5.  Biomarker prediction refinement
+After the completion of the pipeline, the resulting biomarker gene set must be validated to confirm consistency of expression at the population level. If confirmatory in vivo validation  via qPCR or NanoDrop sequencing produces results consistent with Tailor's analysis then the biomarker set may provide utility as a disease diagnostic in the future.
+    
+### Tailor's Minimum Requirements for Operation
+   A user must be able to log into and access the scheduler and resources of HPCC from a command line interface (CLI) or with an SSH client like [PuTTY](https://www.chiark.greenend.org.uk/~sgtatham/putty/latest.html). The Tailor pipeline source code is available at the [Tailor github repository](https://github.com/ahalfpen727/tailor.git) and easily installed according to the directions in the included README.md file. Tailor requires that a user obtain a "reference genome build" that includes a whole-genome FASTA file, a set of gene annotations for the genome in gene transfer format (GTF), and a Bowtie2 index of the genome for the organism being analyzed is required to perform Tailor's differential expression analysis. The "reference genome build" is a source of considerable bias on the outcome of differential expression analyses. Repeated analysis with different genome builds should be considered for high confidence biomarker calls. Reference genome builds for many model organisms can be obtained from the [Illumina's iGenomes ftp-site](https://support.illumina.com/sequencing/sequencing_software/igenome.html). For non-model organisms, Tailor provides a secondary suite of tools for genome indexing and gene-model building. The user must provide RNA-Seq sample libraries for at least two separate conditions (two sample minimimum). However, the minimum number of samples required to produce high confidence biomarkers requires an estimate of the effect size associated with the user's research question and is beyond the scope of this paper.
+
+### Introduction to the LUTS Biomarker Experiment
+   Tailor has been employed in several recent comparative analyses to identify transciptional profiles associated with a particular group or condition [@Smeliloti]. In an effort to advance the goals of personalized medicine the Tailor pipeline was used to identify potential RNA biomarkers from the urine samples provided by the patients of a Fibrosis Study co-ordinated through the Harvard-Michigan-Cornell Early Detection Research Network Clinical Validation Center. The experiment sought to test whether lower urinary tract dysfunction associated with high AUASI score ("bother score") and peri-urethral prostatic fibrosis could be detected from RNA transcripts encoding for proteins that mediate tissue fibrosis. The "bother score" produced from the AUASI questionaire has been validated as a statistically reliable metric of the severity and necessity of treatment for BPH with patients scoring within three chararcteristic brackets [@BotherScore].
+      1. 0-7 Points
+         Enlarged Prostate Symptoms, also known as BPH Symptoms, are considered mild.
+      2. 8-19 Points
+         Enlarged Prostate Symptoms, also known as BPH Symptoms, are considered moderate.
+      3. 20-35 Points
+         Enlarged Prostate Symptoms, also known as BPH Symptoms, are considered severe.
+   To test the hypothesis, RNA was recovered from 18 of the 20 samples provided by 20 participants in the study in order to perform a comparative analysis of the pooled gene expression profiles defined for each group individually. Only specimens from men with low serum PSA (<10ng/ml) and biopsy-negative for prostate cancer were included in the experiment to prevent potential confounding. The 18 samples were split along two groups based on AUASI score. Nine participents with AUASI scores =<5 were characterized as asympotomatic and nince participants with AUASI scores >= 15  were characterized by moderate to severe lower urinary tract dysfunction. For the purposes of this comparative analysis, we refer to the non-symptomatic males as the cannoical control (CTRL) group and refer to the symptomatic males as the benign prostatic hyperplasia or lower urinary tract dysfunction (BPH or LUTS) patient group. 
+
+### RNA Sequence Library Preparation
+   Total RNA recovered from the urine samples was between 684 pg and 54 * 10^4 pg sequence libraries were prepared from the urine samples provided by eighteen males. A rapid run was performed to produce the 51 nucleotide paired end sequence librararies with NuGen’s Single Cell RNA-Seq kit on an Illumina HiSeq 2500 v4. To facilitate multiplexing accross the eight lanes of a flowcell, a 6 base-pair (bp) sample-specific adapater was ligated to the 5' end of every forward sequence from each pair of reads. Sequence libraries were produced in Illumina's proprietary binary bcl format data files and rsynced the MGHPCC for differential expression analysis and *de-novo* biomarker discovery.
+   Indexed libraries were normalized and multiplexed at equimolar concentrations followed by sequencing 50 bp paired-end reads on an Illumina HiSeq 2500 instrument in Rapid Run Mode at the CPCT Genomics Core Facility at UMass Boston. Data analysis was performed on the Green High-Performance Computing Cluster and facilitated by the Tailor pipeline. Libraries of paired-end sequence data in binary BCL format were demultiplexed and converted to fastQ format via Illumina's Bcl2fastq. Poor quality reads were filtered by phred score using Babraham Bioinformatic's FastQC prior to adapter trimming and another round of quality control by Babraham Bioinformatic's Trim Galore.
+ AUASI quality scores, RIN RNA quality scores, sample names associated with the participants and other information about the quality and quantity of RNA extracted from the participants is included in [@Table-1] of Appendix B.
+
+### Tailor's Transcript Assembly and Quantification
+  Tailor converted Bcl base call file to FASTQ format using Illumina’s bcl2fastq conversion tool v1.8.4. RNA-Seq Libraries were demultiplexed with parameters preventing the inclusion of indexes with even a single mismatch. A single FASTQ file for each of the paired end reads was created for each sample by switching off the default parameter that automatically splits FASTQ files after the accumulation of 4 million reads. This setting provides a concatenated FASTQ file of all of the R1 reads and another for all of the R2 reads of a sample. The files were then inspected with the FastQC command line tool package in order to quality control for over-represented sequences, anomalous features, and low phred quality scores. The NuGen sample-specific adapter sequences were then identified and removed using Trim-galore. The index (adapter) trimmed sequence libraries were then mapped with **Tophat v2.0.14**to UCSC's hg38 reference genome build provided by iGenomes (Illumina, Carlsbad, CA). The mapped reads were assembled into transcripts by **Cufflinks v2.2.1** via de-Bruijn graph building and bipartite matching isoforms into minimum-spanning-trees (mst) that account for the distribution of reads from a gene and with the inclusion of potentially novel isoforms (Trapnell, 2012). A gene transfer format (GTF) file was produced for each sample library of assembled transcripts and compared to the reference annotation by **Cuffmerge v2.2.1** to consolidate duplicate gene annotations. The new gene models were input to **Cuffquant v2.2.1** for gene expression quantification and estimatiion of the relative abundance of transcripts aligned for all samples. Each sample's library of gene expression values were normalized by the number of fragments per kilobase of transcript per million mapped reads (FPKM).
+
+###  Tailor's Differential Expression Analysis
+  The gene models and the gene expression files were input to **Cuffdiff v2.2.1** for comparative differential expression analysis via feature-wise hypothesis tests. **Cuffdiff v2.2.1** modeled the gene expression analysis with an overdispersed Poisson-model with the variance calculated as a function of the mean gene expression.  **Cuffdiff v2.2.1** identified biomarker candidates from the false discovery rate (FDR) corrected p-values of feature-wise means tests of the distribution of expression values for each groups. Tailor employs **Cuffdiff v2.2.1**  to perform hypothesis tests of the significance of differentially expressed features associated with q-values below at six different levels of expression including gene, isoform, coding-sequence (CDS), transcription start site (TSS-group), differential promoter use, and differential splicing. Tailor's **Cuffdiff** output is stored in a database file via the MySQL back-end of the **CummeRbund Bioconductor** package for the R statistical programming environment (Goff 2013, R Core Team, 2014). The differential expresion results include FPKM gene expression values,log-fold-change expression values, p-values, false discovery rate (FDR) corrected p-values (q-values), and the associated test-statistic from the feature-wise means tests of the distribution of expression values for each group. A fold change threshold was implemented for the features identified as significantly differentially expressed in accordance with the results from a recent paper that benchmarked the accuracy of commonly used differential expression analysis tools in experiments with small numbers of replicates (n<=12).
+  
+# CHAPTER 3
+## Extended Analysis Section:
+###  Tailor's Prediction Refinement
+   In order to remove any spurious calls produced by Tailor associated with choice of differential expression analysis software, an in silico prediction refinement was performed with several commonly used Bioconductor packages for the R statistical programming environment (Huber, 2015). The bio-marker calls were refined by repeating the differential expression analysis with several other commonly used alternatives to Cuffdiff. Only features identified as differentially expressed by each method will be included in the final bio-marker set. Several Recent papers have suggested that commonly used tool packages for differential expression analysis produce a high number of false positives for small sample comparative RNA-Seq experiments. Repeated analysis with different software helps remove any package specific biases and provides an accuracy estimate for Tailor's biomarker calls. Raw read counts were extracted from the MySQL relational database back-end created by cuffdiff and cummeRbund for secondary analysis with EdgeR, Limma, and Voom Bioconductor packages (Smith, 2009). Only features that were consistently identified as differentially expressed by each of repititious secondary analysis methods were interpreted as true positives. Features only identified by a single method are probably not biologically relevant, are interpreted as spurious calls, and potentitally associated with biases inherent in the protocol of the tool package. Only features that were consistently identified as differentially expressed with included in the final biomarker set. The refined biomarker set will still require confirmatory in-vivo validation. If the results of confirmatory NanoDrop sequencing or quantitative PCR (qPCR) echo the results of this analysis then the validated biomarker gene set may provide utility as a diagnostic for benign prostatic hyperplasia. 
+   
+### Filtering and Normalizing Gene Expression Values
+Biomarker discovery requires hypothesis tests of each feature individually which requires an immense amount of computational resources and time to complete. In order to efficiently allocate computational resources, the data must be filtered and normalized. Normalization is the process of balancing the gene expression libraries of the samples to account for variations in labeling, blocking, and hybridization.  Before normalization can be performed, genes and features that are expressed at very low levels must be removed to reduce the number of unproductive tests performed and the lower the computational resource requirement of the analysis. There is already a filtering step built into Tailor's differential expression analysis software package, Cuffdiff. All of the tables output by Tailor's Cuffdiff step include a "status" column which indicates whether sufficient expression was detected for each feature to allow for the perfomance of a hypothesis test. In order to pertubate Tailor's results and exclude spurious calls associated with Cuffdiff normalization procedure, the secondary analysis and biomarker prediction refinement included additional filtering and normalization steps.
+A matrix of transcript counts for each sample across all annotated genes was extracted from Tailor's relational-database backend for downstream analysis. Genes with zero transcript counts across all samples were not included in the secondary analysis. A minimum count threshold of at least one transcript for at least half of the samples in the analysis was set for each gene to be considered biologically expressed and detected. While RNA-Sequencing is less biased technology than microarrays, there are several sources of noise that must be filtered from the data. Lane biases in the flow cell and differences in sequencing depth can be mitigated through multiplexing and scaling the size of each sample's library of gene expression. Tailor's Cuffdiff step scales libraries by gene length and total library size using the number of fragments per kilobase per million mapped reads (FPKM). FPKM is a unit of measurement that normalizes counts by gene length and genome length. A second minimum count threshold of one transcript count per million in at least half of the samples was set in order to explore the influence of genes expressed at a low level on the results of the analysis. Filtered gene expression counts were then analyzed with EdgeR, Limma, and Voom, three commonly used Bioconductor packages for differential expression analysis that employ different types of linear and non-linear models (Smith, 2009).
+
+### EdgeR Analysis
+   In order to produce a high-confidence bio-marker set from the consistent calls of significant differential expression across multiple methods, a secondary analysis was performed with **EdgeR**, a Bioconductor package for modeling of gene expression values to identify differentially expressed features(Robinson, 2009). EdgeR's built in quantile normalization method was employed with a generalized linear model (glm) approach for differential expression analysis (Robinson, 2009). **EdgeR's** glm method produces a negative binomial model of gene expression counts and employs an empirical Bayes method for squeezing the gene-wise dispersion towards a common value to prevent over representation in the model from outliers. **EdgeR's** glm approach provides two methods for testing differential expression, a likelihood ratio test and a quasi-likelihood F-test (Yun, 2016). The quasi-likelihood F-test incorporates uncertainty estimates for gene-wise dispersion yielding a more robust method of differential expression. This method produced 72 biomarkers after bonferroni false discovery correction for multiple hypothesis tests.
+
+### Limma Linear Models
+   **Limma**, a **Bioconductor** package for differential gene expression analysis was employed to refine the bio-marker set produced by Tailor (Ritchie, 2015). **Limma** fits linear models to the gene expression values of the LUTS patient group to serve as response variables of the gene expression of the Control group, the predictor variable. To mitigate potential influence from the mean-variance relationship common in count data, a negative binomial distribution was used to model the count data. To further control the influence from the mean-variance relationship, empirical Bayes moderation was performed by estimating gene-wise variability across the entire data set.
+
+### Limma-Voom Updated Linear Models
+   Several modifications on **Limma's** standard linear modeling package have become available in recent years. One recent modification is normalization of count data with the **Voom Bioconductor** package (Law, 2014). Voom produces log base two fold change quantification of read counts per million with independent weighing of each sample's library size. The eponymous command included in the **Voom Bioconductor** package produces a plot that demonstrates a reduction in the mean-variance relationship. However, a problematic trend between the model’s residual variances and the average expression values persists. To eliminate this relationship empirical Bayes estimation of the gene-wise biological variation was incorporated into the analysis from information borrowed from all the samples of the entire data set being analyzed in order to produce moderated test-statistics. The qqplot of the moderated t-statistic suggests that the chosen model significantly reduced the mean variance relationship. A bio-marker set was culled from the model by setting a log fold change threshold minumum of two, with a q-value threshold of alpha=0.05. From **Limma's** updated analysis with **Voom** a  final bio-marker set of 55 genes was produced.
+
+
+# CHAPTER 4
+## Tailor's Visualization
+### CummeRbund's Statistical Sanity Check
+  Tailor uses the differential expression analysis results to produce a visually digestible summation of the salient features common among the samples of a particular phenotype. This statistical sanity check and visualization is provided with the **CummeRbund Bioconductor** step. The output from the visualization step helps guide the secondary analysis and any prediction refinement that may be necessary. Tailor uses several different **Bioconductor** packages including **Pathview v1.10.1**, **Gage**, **STRINGdb**, and **GOstats** to visualize over represented sub-networks and pathways between the groups. Tailor versatile downstream visualization can be performed for many sp
+
+### KEGG Pathway Enrichment Analyses
+  Tailor performs a cohesive gene set enrichment analysis (GSEA) with KEGG pathway with functions from the **Pathview**,**Gage**,and **ClusterProfiler** **Bioconductor** packages with annotations included in the **STRINGdb**, **Gage**, and **Biomart Bioconductor** packages. Tailor maps the differential expression analysis output to Gene Ontology (GO) and KEGG pathway annotations in order to perform downstream enrichment analyses. Tailor uses the differentially expressed genes that are associated with known pathway annotations and a hypergeometric model to detect if there is significant enrichment when compared to the expected number of differentially expressed genes per pathway (Boyle et al. 2004). The gene expression values are mapped onto archetypal KEGG pathway plots to visualize significant peterbations between the conditions being analyzed. The top ten most differentially expressed KEGG pathways identified from a comparison of the LUTS patient group against the control group are
+
+### Condition Specific 'Characteristic' Sub-networks
+   Tailor's novel sub-network discovery step is an unbiased network analysis that does not incorporate prior knowledge into the analysis of the gene expression values. The potentially novel pathway motifs and sub-networks are detected based on calculation of gene wise correlation coefficients. Genes associated with a high correlation coefficient for all the samples of one group and inverse correlation with the expression levels of the samples of the other group are selected for further analysis. Only features producing a Pearson correlation coefficient of at least .9 across all the samples of a condition are included in the condition-specific 'characteristic' sub-network. The features with correlation across all the samples of both conditions are excluded from the final condition-specific 'characteristic' sub-networks. Only features that can separate the groups are included in the output.
+
+### StringDB Sub-Network Discovery and Analysis
+   Sub-network analysis of the differential expression analysis output was filtered based on two log fold change difference in expression across the groups and a p-value cutoff of alpha=0.05. Network analysis with the human interactome was performed in the R statistical programming environment using the **StringDB** database.
+
+### Gene Ontology Over Representation Analysis (ORA)
+   The results of the comparative differential expression analysis are used to explore and characterize hypothetical etiology and mechanistic propogation of fribrosis associated BPH in a working model informed by the preliminary gene expression profile. Significantly differentially expressed genes were partitioned in  order to define subsets that were exclusively over-expressed in the LUTS patient group separately from the genes that were exclusively over-expressed in the CTRL group. o elucidate the etiology of fibrosis associated  the Tailor performs an over representation analysis (ORA) by calling the **GOstats Bioconductor** Tailor maps the differential gene expression analysis output calculated by **cuffdiff** to gene ontology (GO) annotations in order to identify over represented features within the three archetypal ontology catageories of cellular components (CC), biological processes (BP), and molecular functions (MF). The over-represented features are identified by comparing the saturation of experimentally-derived gene lists (differentially expressed genes) beyond the expected quantity with a background "universe" of all of the reference annotations used in the initial differential expression. A hypergeometric model and a p-value threshold of alpha=0.05 were employed to determine which GO terms exhibited over representation from the experimental data. An html file for each level of ontology (MF, BP, and CC) was produced to catalogue the up and down regulated features between the conditions under observation in the experiment.
+
+# CHAPTER 5
+# Results/Summary of the Investigation:
+## Tailor's Standard Workflow Output
+   Tailor used **Tophat** to align the libraries of paired-end sequence data to **UCSC's** hg38 Homo sapiens reference genome assembly yielding a per-sample average overall mapping rate of 94.0% with a minimum overall mapping rate of 82.3%. Average concordant pair-mapping rate to the hg38 genome was 82.2% with a minimum per-sample concordant pair-mapping rate of 66.8%. Tailor assembled transcripts for 26372 genes, 56891 isoforms, 36510 TSS-groups, 38679 CDS', 26225 promoters, and 36510 splicing. Filtering of genes with expression levels less than two counts per million mapped reads in less than half of the samples were excluded from the analysis since it is unlikely these libraries are translated to significant quantities of a biologically active protein or contribute to a unique phenotype. Tailor detected significant differential expression for 393 genes, 536 isoforms, 452 TSS-groups, 375 CDS', 393 promoters, and 452 splices. To determine the accuracy of Tailor's bio-marker set, a statistical sanity check was performed that included normality tests, library visualization, and differential expression analysis with several commonly used **Bioconductor** packages for the analysis of high throughput sequence data in the R statistical programming environment. Both **EdgeR** and **Limma** perform linear modeling of group-wise gene expression values which require sample specific library size normalization and comparison against a design matrix (both included below). A cursory exploration of the normality of the data precludes the use of ordinary least squares to model the data. The non-normality of the data also represent a violation of assumptions and may explain the sparse overlap between a recently performed *f-test* and Tailor's bio-marker calls.  While the ideal model for gene expression data is still an open area of research, many tools employ some version of a Poisson model since the data being analyzed are essentially count data. We will employ a quasi-Poisson model because it provides utility for data that exhibit a dynamic variance that is dependent upon the mean.
+
+# CHAPTER 6
+## Conclusion
+### Interpretation of the Results and Conclusions Drawn from the Investigation:
+   Repeated analysis of the significant differentially expressed features across samples provided by lower urinary tract syndrome symptomatic males and samples provided by healthy males serving as a canonical control group was performed using the Tailor RNA-Seq pipeline for Biomarker discovery as well as several commonly used Bioconductor packages (**EdgeR** and **Limma**) The bio-marker set produced by each method totaled fewer than 200 features and exhibited a minor overlap in the biomarkers identified by each method. The final bio-marker set is comprised of 17 genes that were consistently identified as differentially expressed across the conditions.  These 17 genes that Tailor, **EdgeR**, and **Limma** identified as significantly differentially expressed will serve as bio-marker candidates for the next phase of the analysis. *In vivo* verification of the bio-marker candidates is currently being planned with qPCR and **NanoDrop** sequencing, a far less sensitive technology than RNA-Seq (Othman, 2018). The results of **NanoDrop** sequencing will demonstrate the veracity of the bio-marker gene-set and Tailor's bio-marker discovery workflow. If *in vivo* verification produces results consistent with the results of this analysis, then **NanoDrop** sequencing of RNA extracted from urine samples may serve as a low-cost, non-invasive diagnostic for the detection of fibrosis-associated lower urinary tract syndrome in the future.
+
+### Future Plans
+   Tailor’s analysis workflow enables biologists to extract RNA in a noninvasive manner from blood or urine and identify the causal genetic phenomena associated with the presentation of a diseased phenotype.The goal of this experiment is to use the bio-marker genes as a liquid biopsy urinalysis that can differentiate BPH from prostate cancer. Tailor is currently being prepared for release as an open-source tool-package available for academic research. A second release of the Tailor pipeline is being planned in order to incorporate a variant/SNP analysis as well.
+ 
+Low-Level Expression Filter
+For differential expression analyses in nasal samples, only probesets that were expressed in at least 5% of samples were included to reduce noise and data dimensionality. Background-level expression was determined by examining the expression level of the Y-chromosome genes DDX3Y, KDM5D, RPS4Y1, and USP9Y represented by probesets 8176375, 8176578, 8176624, 8177232 in female samples from the training set. Probesets whose expression level did not exceed 1.5 positive standard deviations of the mean expression of the four Y-linked genes in at least 5% of samples were not considered in the analyses. 
+
+Characterization of Genes Associated with BPH
+Genes associated with cancer status in benign prostatic hyperplasia were identified using empirical Bayes linear models (2) after correcting for . The most differentially expressed genes (p<0.001) were clustered using unsupervised hierarchical clustering with Pearson distance and Ward linkage. The sample dendrogram was cut to yield two groups of samples. The difference in the proportion of BPH samples to control samples in each group was tested using a Pearson’s Chi-squared test for count data. We assessed the potential biological implications of the genes with cancer-associated expression alterations by determining if particular functional pathways and ontologies were over-represented amongst our x-associated genes using the Reactome and Gene Ontology (GO) databases accessed through the web-based gene set enrichment program EnrichR (3).
+
+## Pre-ranked Gene Set Enrichment Analysis & Analysis of Core Enrichment
+Gene Set Enrichment Analysis (GSEA (4)) was used to determine if the genes with cancer-associated expression in nasal epithelium were concordantly enriched among the genes with cancer-associated expression in the bronchial epithelium. Briefly, the most significantly differentially expressed genes in nasal epithelium were segregated into up-regulated and down-regulated gene sets. Using the bronchial epithelium gene expression data, each gene’s association with cancer was assessed using a linear model which yielded a moderated (empirical Bayes) t-statistic used to rank the genes in descending order. The pre-ranked function within the GSEA software package was then used to determine whether either of the two nasal gene sets was enriched among the most up-regulated or down-regulated genes in bronchial samples. Normalized enrichment scores and p-values were calculated using the GSEA software tool which uses a permutation-based variant of the Kolmogorov-Smirnov test (4). The component of each significantly enriched gene set that contributed most strongly to the enrichment (the “leading edge” or “core enrichment”) was identified from the GSEA enrichment report. These genes were clustered in nasal samples using unsupervised hierarchical clustering with Ward linkage. Similar to the approach delineated above, the sample dendrogram for both the bronchial and nasal samples was cut to yield two groups of samples and Pearson’s Chi-squared test for count data was used to test the difference in the proportion of cancer samples to benign samples in each group.
+
+## Cross-Validation and Optimization of the Biomarkers for BPH/LUS
+The training set was randomly divided with 80% of samples assigned to an internal training set and the remaining 20% of samples assigned to an internal test set. Within each internal training set, the association of each gene’s expression with cancer status was assessed using Student’s t-test. The genes were ranked by absolute t-statistic and a varying number of the top-ranked genes were selected for inclusion in the classifier. Six classification algorithms were evaluated including glmnet, Naïve Bayes, KNN, support vector machines, random forest, and weighted voting. Weighted voting was chosen as the optimal classification algorithm as it achieved the highest AUC in cross-validation. With the classification algorithm selected, classifiers composed of 5 to 100 genes were evaluated. The performance of each internally trained classifier was quantified using the AUC in the internal test set. This cross-validation procedure was repeated for 100 iterations. The AUC values across the 100 splits of the data were used to rank the models. The optimal model was chosen after manual inspection of the cross-validation results with the goal of selecting a model with a high average AUC, small standard deviation of AUC across all iterations, and a small number of genes included in the classifier, relative to all other models. The genes included in the final model were selected and the final weighted voting classifier was trained using the entire training set and completely specified prior to evaluation in the validation set.
+
+
+```{r library-and-data-load, include=FALSE}
+# Cran
+library(markdown);library(rmarkdown);library(knitr);library(bookdown);library(thesisdown)
+library(dplyr);library(magrittr); library(tidyverse);library(rpart);library(rpart.plot)
+library(gplots);library(ggplot2);library(igraph);library(corrplot);library(viridis)
+library(stats);library(stats4);library(outliers);library(nortest);library(pvclust)
+library(apeglm);library(rticles);library(memisc);library(MBESS);library(cowplot)
+library(Hmisc);library(psych);library(lme4);library(lmm);library(nlme)
+library(kableExtra);library(xtable);library(DT);library(gridExtra)
+library(stringi);library(stringr);library(readr);library(png)
+library(afex);library(apaTables);library(dissertateUSU)
+# Bioconductor font-family: Times New Roman
+library(ReactomePA);library(rtracklayer);library(reactome.db);library(DOSE)
+library(genefilter);library(cummeRbund);library(limma);library(edgeR)
+library(STRINGdb);library(GenomicRanges);library(GenomicFeatures)
+library(DLBCL);library(DESeq2);library(DESeq);library(enrichplot)
+library(topGO);library(GOstats);library(gage);library(gageData)
+library(RColorBrewer);library(VennDiagram);library(parallel)
+library(org.Hs.eg.db);library(biomaRt); library(biomartr)
+library(pathview);library(MASS);library(clusterProfiler)
+# Data and gene sets
+data(egSymb);data(bods);data(korg);data(carta.hs);data(interactome)
+data(kegg.gs.dise);data(kegg.sets.hs);data(sigmet.idx.hs)
+data(go.sets.hs);data(go.subs.hs);data(ko.ids)
+data(gene.idtype.list);data(gene.idtype.bods)
+data(kegg.met);data(kegg.gs)
+```
+
+```{r data-and-functions, include=FALSE, message=FALSE, echo=FALSE}
+# Functions
+scale01 <- function(x){(x-min(x))/(max(x)-min(x))}
+#source("https://faculty.ucr.edu/~tgirke/Documents/R_BioCond/My_R_Scripts/GOHyperGAll.txt")
+# sequence data
+genome.fa="/media/drew/easystore/umb_triley/Reference-Genomes/Human/UCSC_hg38/genome.fa"
+refgtf="/media/drew/easystore/umb_triley/Reference-Genomes/Human/UCSC_hg38/genes.gtf"
+inDir="/media/drew/easystore/umb_triley/urine1/cuffdiff_results_hg38_default/LUTS-over-CTRL"
+cuff<-cummeRbund::readCufflinks(dir=inDir,genome=genome.fa,gtfFile=refgtf, rebuild=F)
+#metadata
+
+concord=file.path("/media/drew/easystore/umb_triley/Thesis/Concordant_Mapping.csv")
+overall=file.path("/media/drew/easystore/umb_triley/Thesis/Overall_Mapping.csv")
+concord.map<-read_csv(concord, col_names =c("Samples","concordant.mapping"))
+overall.map<-read_csv(overall, col_names =c("Samples","overall.mapping"))
+mapping.rate<-merge(concord.map, overall.map, by.x="Samples", by.y="Samples")
+mapping.rate$concordant.mapping<-gsub(mapping.rate$concordant.mapping, pattern="%",replace="")
+mapping.rate$overall.mapping<-gsub(mapping.rate$overall.mapping, pattern="%",replace="")
+o.mapping.stats<-describe(as.numeric(mapping.rate$overall.mapping))
+c.mapping.stats<-describe(as.numeric(mapping.rate$concordant.mapping))
+mapping.stxt<-rbind(overall.stat=o.mapping.stats,concordant.stats=c.mapping.stats)
+
+Reads.in=file.path("/media/drew/easystore/umb_triley/Thesis/TotalReadCountin.csv")
+Reads.out=file.path("/media/drew/easystore/umb_triley/Thesis/TotalReadCountout.csv")
+read.cnts.in<-read_csv(Reads.in, col_names =c("Samples","Left.Right.In", "Read.Count"),
+                       skip = 1)
+read.cnts.out<-read_csv(Reads.out, col_names =c("Samples","Left.Right.Out", "Read.Count"))
+Read.Counts<-cbind(read.cnts.in,read.cnts.out)
+colnames(Read.Counts)<-c("Samples","Left.Right.In", "Read.Count.In",
+                         "Samples2", "Left.Right.Out","Read.Count.Out")
+Read.Cnts<-Read.Counts[-23,]
+read.cnts<-Read.Cnts[-23,]
+rdcnts<-read.cnts[,-4]
+rdcnt.all<-rbind(cnts.in=psych::describe(rdcnts$Read.Count.In/10^6),cnts.out=psych::describe(rdcnts$Read.Count.Out/10^6))
+scrs=file.path("/media/drew/easystore/umb_triley/urine1/Sample-Library-Preparation/MichiganUrineSpecimensAUASIscores.csv")
+AUASI<-read_csv(scrs,trim_ws = T,col_names = TRUE)
+AUASI.df<-AUASI %>%
+   mutate(Sample.Num = paste("Sample", Samples, sep="_"))
+lanes<-read_csv(file="/media/drew/easystore/umb_triley/urine1/Sample-Library-Preparation/lane-and-sample-numbers.csv", col_names = T,trim_ws = T)
+pool<-read_delim(file="/media/drew/easystore/umb_triley/urine1/Sample-Library-Preparation/Pool-A-and-Pool-B-barcode-summary.csv", col_names = c("sample.number","NuGene.Adapter.Num", "barcode.seq","lanes"), trim_ws = T,  delim=",")
+# run data
+lane<-as.factor(pool$lanes)
+replicates.info<-cummeRbund::replicates(cuff)
+groups<-replicates.info$sample_name
+under=groups[1]
+over=groups[((length(groups)/2)+1)]
+grp.factor<-c(rep(0,9),rep(1,9))
+grp.fac<-factor(grp.factor, levels=0:1, labels=c(under, over))
+cuffdir<-dirname(replicates.info$file)
+sample_number<-basename(cuffdir)
+replicates.info<-replicates.info[-1]
+replicates.info$sample_number<-basename(cuffdir)
+replicates.info$sample_number <- gsub("_out","",replicates.info$sample_number)
+replicate.df<-merge(replicates.info, pool, by.x="sample_number",by.y="sample.number")
+replicates.df<-merge(replicate.df, AUASI.df, by.x="sample_number",by.y="Sample.Num")
+replicates.df<-replicates.df[,-2,-8] 
+design <- model.matrix(~ 0 + Group, data=replicates.df)
+colnames(design)<-c("CTRL","LUTS")
+row.names(design) <- replicates.df$rep_name
+# contrast matrix
+contr.matrix <- makeContrasts(CTRL-LUTS, levels=design)
+auasi.df="/media/drew/easystore/umb_triley/Thesis/AUASI.df.txt"
+auasi.file = file.path(auasi.df)
+write.table(AUASI.df,file = auasi.file, sep = "  ", row.names = F, col.names = T,quote = F)
+
+gtfDir="/media/drew/easystore/umb_triley/urine1/cuffcompare_results_hg38_gtf_guided"
+gtffile <- file.path(gtfDir,"cuffcmp.combined.gtf")
+cuffcmp="/media/drew/easystore/umb_triley/urine1/cuffcompare_results_hg38_gtf_guided/cuffcmp.combined.gtf"
+mergedgtf <- readGFF(cuffcmp)
+hg38.genes.gtf<-as.data.frame(mergedgtf)
+novelmerged<-hg38.genes.gtf[which(hg38.genes.gtf["class_code"] != "="),]
+novel.hg38.granges<-makeGRangesFromDataFrame(novelmerged, keep.extra.columns=TRUE)
+hg38.granges<-makeGRangesFromDataFrame(hg38.genes.gtf, keep.extra.columns=TRUE)
+txdb <- makeTxDbFromGFF(gtffile, format="gtf", circ_seqs=character())
+seqlevels(txdb)<-seqlevels0(txdb)
+seq.txdb<-seqlevels(txdb)
+tbg <- transcriptsBy(txdb,by="gene")
+```
+
+```{r diff-expr-initialize, message=FALSE, warning=FALSE, echo=FALSE}
+g.rep.matrix<-repCountMatrix(cummeRbund::genes(cuff))
+genes_exp.diff<-diffData(cummeRbund::genes(cuff))
+g.cnt.df<-repCountMatrix(cummeRbund::genes(cuff))
+cuff.table<-diffTable(cummeRbund::isoforms(cuff))
+cuffnames<-gsub(x=colnames(cuff.table),pattern="LUTS_CTRL_", replacement ="")
+colnames(cuff.table)<-cuffnames
+# set Inf and -Inf with ceiling and floor
+# set real number ceiling and floor
+ma<-max(genes_exp.diff$log2_fold_change[is.finite(genes_exp.diff$log2_fold_change)])
+mi<-min(genes_exp.diff$log2_fold_change[is.finite(genes_exp.diff$log2_fold_change)])
+# set Inf and -Inf with ceiling and floor
+genes_exp.diff$log2_fold_change<-replace(genes_exp.diff$log2_fold_change,
+                                         genes_exp.diff$log2_fold_change == "Inf", ma)
+genes_exp.diff$log2_fold_change<-replace(genes_exp.diff$log2_fold_change,
+                                         genes_exp.diff$log2_fold_change == "-Inf", mi)
+cuff.table$log2_fold_change<-replace(cuff.table$log2_fold_change, 
+                                     cuff.table$log2_fold_change == "Inf", ma)
+cuff.table$log2_fold_change<-replace(cuff.table$log2_fold_change,
+                                     cuff.table$log2_fold_change == "-Inf", mi)
+
+cufftable.sig.df<-subset(cuff.table, cuff.table$significant=="yes")
+cufftable.ok.df<-subset(cuff.table, cuff.table$status=="OK")
+# sig gene expr data
+sig_genes_exp.diff<-subset(genes_exp.diff, genes_exp.diff$significant=="yes")
+mySigGenes<-getSig(cuff,x=over,y=under,alpha=0.05,level='genes')
+sigGenes<-getGenes(cuff, mySigGenes)
+# gene expr df and ma
+g.cnt.df=as.data.frame(g.cnt.df)
+g.cnt.ma=as.matrix(g.cnt.df)
+# select directionally similar genes for each group
+sig.h.genes_exp.diff<-subset(sig_genes_exp.diff,
+                             sig_genes_exp.diff$log2_fold_change > 0
+                             & sig_genes_exp.diff$q_value < 0.05)
+sig.l.genes_exp.diff<-subset(sig_genes_exp.diff,
+                             sig_genes_exp.diff$log2_fold_change < 0
+                             & sig_genes_exp.diff$q_value < 0.05)
+
+s.g.h.rep.matrix<-g.cnt.df[which(row.names(g.cnt.df) %in% sig.h.genes_exp.diff$gene_id),]
+s.g.l.rep.matrix<-g.cnt.df[which(row.names(g.cnt.df) %in% sig.l.genes_exp.diff$gene_id),]
+# factors for conditions
+under.group<-grep(pattern=under, colnames(g.cnt.df))
+over.group<-grep(pattern=over, colnames(g.cnt.df))
+
+# get go ids
+g.cnt.df$EntrezID<- mapIds(org.Hs.eg.db,
+                          keys=rownames(g.cnt.df),
+                          column="ENTREZID",keytype="SYMBOL",
+                          multiVals="first")
+g.cnt.df<-g.cnt.df[!duplicated(g.cnt.df$EntrezID),]
+g.cnt.df<-g.cnt.df[!is.na(g.cnt.df$EntrezID),]
+g.cnt.df$GOid<- mapIds(org.Hs.eg.db,
+                          keys=rownames(g.cnt.df),
+                          column="GO",keytype="SYMBOL",
+                          multiVals="first")
+g.cnt.df<-g.cnt.df[!is.na(g.cnt.df$GOid),]
+inds <- which(!is.na(g.cnt.df$GOid) & !is.na(g.cnt.df$EntrezID))
+# factors for conditions
+g.cnt.df<-g.cnt.df[inds,]
+g.cnt.ma<-g.cnt.ma[inds,]
+g.o.cnt.df<-g.cnt.df[,over.group]
+g.u.cnt.df<-g.cnt.df[,under.group]
+
+sig.cnt.df<-g.cnt.df[which(row.names(g.cnt.df) %in% sig_genes_exp.diff$gene_id),]
+
+s.g.h.rep.matrix<-s.g.h.rep.matrix[,over.group]
+s.g.l.rep.matrix<-s.g.l.rep.matrix[,under.group]
+
+s.g.h.rep.matrix<-s.g.h.rep.matrix[,c(1:9)]
+s.g.l.rep.matrix<-s.g.l.rep.matrix[,c(1:9)]
+upgenes<-file.path("/media/drew/easystore/umb_triley/Thesis/sig_up_genes.csv")
+write_lines(row.names(s.g.h.rep.matrix),path = upgenes)
+downgenes<-file.path("/media/drew/easystore/umb_triley/Thesis/sig_down_genes.csv")
+write_lines(row.names(s.g.l.rep.matrix), path = downgenes)
+#Create a graph adjacency based on correlation distances between genes in  pairwise fashion.
+oh.graph <- graph.adjacency(as.matrix(as.dist(cor(t(s.g.h.rep.matrix),method="pearson"))),
+                              mode="undirected", weighted=TRUE, diag=T)
+#Simplfy the adjacency object  over.graph <- simplify(over.graph, remove.multiple=TRUE, remove.loops=TRUE)
+#Colour negative correlation edges as blue
+E(oh.graph)[which(E(oh.graph)$weight<0)]$color <- "yellowblue"
+#Colour positive correlation edges as red
+E(oh.graph)[which(E(oh.graph)$weight>0)]$color <- "blue"
+#Convert edge weights to absolute values
+E(oh.graph)$weight <- abs(E(oh.graph)$weight)
+#Change arrow size #For directed graphs only
+E(oh.graph)$arrow.size <- 2.0
+#Remove edges below absolute Pearson correlation 0.9
+oh.graph <- delete_edges(oh.graph, abs(E(oh.graph))[which(E(oh.graph)$weight<0.85)])
+#Assign names to the graph vertices (optional)
+V(oh.graph)$name <- V(oh.graph)$name
+#Change shape of graph vertices
+V(oh.graph)$shape <- "sphere"
+#Change colour of graph vertices
+V(oh.graph)$color <- "skyblue"
+#Change colour of vertex frames
+V(oh.graph)$vertex.frame.color <- "green"
+#Scale the size of the vertices to be proportional to the level of expression of each gene represented by each
+oh.vSizes <- (scale01(apply(s.g.h.rep.matrix, 1, mean)) + 1.0) * 7
+#Amplify or decrease the width of the edges
+oh.edgeweights <- E(oh.graph)$weight * 2
+#Convert the graph adjacency object into a minimum spanning tree based on Prim's algorithm
+oh.mst <- mst(oh.graph, algorithm="prim")
+#Plot the tree object
+#mst.communities <- edge.betweenness.community(mst, directed=T)
+oh.mst.communities <- edge.betweenness.community(oh.mst, directed=F,edge.betweenness=T,
+                                                 membership=T)
+
+oh.mst.clustering <- make_clusters(oh.mst, membership=oh.mst.communities$membership)
+V(oh.mst)$color <- oh.mst.communities$membership + 1
+# Downregulated subnets
+ol.graph <- graph.adjacency(as.matrix(as.dist(cor(t(s.g.l.rep.matrix),method="pearson"))),
+                            mode="undirected",weighted=TRUE, diag=T)
+#Simplfy the adjacency object  over.graph <- simplify(over.graph, remove.multiple=TRUE, remove.loops=TRUE)
+#Colour negative correlation edges as blue
+E(ol.graph)[which(E(ol.graph)$weight<0)]$color <- "yellowblue"
+#Colour positive correlation edges as red
+E(ol.graph)[which(E(ol.graph)$weight>0)]$color <- "blue"
+#Convert edge weights to absolute values
+E(ol.graph)$weight <- abs(E(ol.graph)$weight)
+#Change arrow size #For directed graphs only
+E(ol.graph)$arrow.size <- 1.0
+#Remove edges below absolute Pearson correlation 0.9
+ol.graph <- delete_edges(ol.graph, abs(E(ol.graph))[which(E(ol.graph)$weight<0.85)])
+#Assign names to the graph vertices (optional)
+V(ol.graph)$name <- V(ol.graph)$name
+#Change shape of graph vertices
+V(ol.graph)$shape <- "sphere"
+#Change colour of graph vertices
+V(ol.graph)$color <- "skyblue"
+#Change colour of vertex frames
+V(ol.graph)$vertex.frame.color <- "green"
+#Scale the size of the vertices to be proportional to the level of expression of each gene represented by each
+ol.vSizes <- (scale01(apply(s.g.l.rep.matrix, 1, mean)) + 1.0) * 7
+#Amplify or decrease the width of the edges
+ol.edgeweights <- E(ol.graph)$weight * 2
+#Convert the graph adjacency object into a minimum spanning tree based on Prim's algorithm
+ol.mst <- mst(ol.graph, algorithm="prim")
+#Plot the tree object
+ol.mst.communities <- edge.betweenness.community(ol.mst, directed=F,
+                                                 membership=T)
+ol.mst.clustering <- make_clusters(ol.mst, membership=ol.mst.communities$membership)
+V(ol.mst)$color <- ol.mst.communities$membership + 1
+```
+
+
+```{r Tailor-pathway-analysis,echo=FALSE, message=FALSE, warning=FALSE, cache=FALSE}
+s.g.h.rep.matrix$EntrezID <- mapIds(org.Hs.eg.db,
+                                keys=rownames(s.g.h.rep.matrix),
+                                column="ENTREZID",keytype="SYMBOL",
+                                multiVals="first")
+s.g.h.rep.matrix$GO <- mapIds(org.Hs.eg.db,
+                                keys=rownames(s.g.h.rep.matrix),
+                                column="GO",keytype="SYMBOL",
+                                multiVals="first")
+
+s.g.l.rep.matrix$EntrezID <- mapIds(org.Hs.eg.db,
+                                keys=rownames(s.g.l.rep.matrix),
+                                column="ENTREZID",keytype="SYMBOL",
+                                multiVals="first")
+s.g.l.rep.matrix$GO <- mapIds(org.Hs.eg.db,
+                                keys=rownames(s.g.l.rep.matrix),
+                                column="GO",keytype="SYMBOL",
+                                multiVals="first")
+over.grp.fpkm.ma<-s.g.h.rep.matrix[,1:9]
+under.grp.fpkm.ma<-s.g.l.rep.matrix[,1:9]
+genes_exp.diff$entrez <- mapIds(org.Hs.eg.db,keys=genes_exp.diff$gene_id,
+                               column="ENTREZID",keytype="SYMBOL",
+                               multiVals="first")
+
+foldchanges<-genes_exp.diff$log2_fold_change
+isntna <- g.cnt.df[!is.na(g.cnt.df$EntrezID),]
+#foldchanges <-foldchanges[isntna]
+folddown<-order(foldchanges, decreasing = T)
+foldchanges <- foldchanges[na.omit(names(foldchanges[folddown]))]
+gene <- names(foldchanges)[abs(foldchanges) > 2]
+
+foldchanges<-genes_exp.diff$log2_fold_change
+names(foldchanges)<-genes_exp.diff$entrez
+isntna <- !is.na(names(foldchanges))
+foldchanges <-foldchanges[isntna]
+folddown<-order(foldchanges, decreasing = T)
+genes <- names(foldchanges)[abs(foldchanges) > 2]
+det <- foldchanges[abs(foldchanges) > 2]
+
+fold.change<-genes_exp.diff[,"log2_fold_change"]
+foldchange<-sig_genes_exp.diff[,"log2_fold_change"]
+over.= which(foldchange > 0, foldchange == "Inf", foldchange != "-Inf")
+under. = which(foldchange < 0,  foldchange == "-Inf")
+
+HIexp.inOVER<-as.data.frame(sig_genes_exp.diff[over.,])
+HIexp.inUNDER<-as.data.frame(sig_genes_exp.diff[under.,])
+
+ENTREZQvalUNDERhi<-mapIds(x = org.Hs.eg.db,
+                          keys = HIexp.inUNDER$gene_id,
+                          column = "ENTREZID",
+                          keytype = "SYMBOL",
+                          multiVals="first")
+ENTREZQvalOVERhi<-mapIds(x = org.Hs.eg.db,
+                          keys = HIexp.inOVER$gene_id,
+                          column = "ENTREZID",
+                          keytype = "SYMBOL",
+                          multiVals="first")
+genes_exp.diff$entrezids<-mapIds(x = org.Hs.eg.db,
+                          keys = genes_exp.diff$gene_id,
+                          column = "ENTREZID",
+                          keytype = "SYMBOL",
+                       	  multiVals="first")
+sig_genes_exp.diff$entrezids<-mapIds(x = org.Hs.eg.db,
+                          keys = sig_genes_exp.diff$gene_id,
+                          column = "ENTREZID",
+                          keytype = "SYMBOL",
+                       	  multiVals="first")
+sig_genes_exp<-cbind(entrezids=sig_genes_exp.diff$entrezids,
+                     genesymbols = sig_genes_exp.diff$gene_id,
+                     pval=sig_genes_exp.diff[,"p_value"],
+                     qval=sig_genes_exp.diff[,"q_value"],
+                     log2fold=sig_genes_exp.diff[,"log2_fold_change"])
+sig.genes.exp<-sig_genes_exp[which(!is.na(sig_genes_exp))]
+genes.exp<-genes_exp.diff[which(!is.na(genes_exp.diff$entrezids)),]
+
+over.group<-grep(pattern = over, x = colnames(g.rep.matrix),ignore.case = T)
+under.group<-grep(pattern = under, x = colnames(g.rep.matrix),ignore.case = T)
+
+g.under.matrix<-g.rep.matrix[,under.group]
+g.over.matrix<-g.rep.matrix[,over.group]
+
+genes<-rownames(genes.exp)
+foldchange<-genes.exp[,"log2_fold_change"]
+qval<-genes.exp[,"q_value"]
+
+under.in = which(foldchange < 0, foldchange >= "-Inf", qval < 0.05)
+over.in= which(foldchange > 0, foldchange < "Inf",  qval < 0.05)
+
+HIexp.inOVER<-as.data.frame(genes_exp.diff[over.in,])
+HIexp.inOVER$q_value<-HIexp.inOVER[,"q_value"]
+HIexp.inOVER$logFC<-HIexp.inOVER[,"log2_fold_change"]
+
+ma<-max(HIexp.inOVER$logFC[is.finite(HIexp.inOVER$logFC)])
+mi<-min(HIexp.inOVER$logFC[is.finite(HIexp.inOVER$logFC)])
+HIexp.inOVER$logFC<-replace(HIexp.inOVER$logFC, HIexp.inOVER$logFC == "Inf", ma)
+HIexp.inOVER$logFC<-replace(HIexp.inOVER$logFC, HIexp.inOVER$logFC == "-Inf", mi)
+HIexp.inOVER$entrezid<-mapIds(x = org.Hs.eg.db,keys =  HIexp.inOVER$gene_id,
+                              column = "ENTREZID",keytype = "SYMBOL",multiVals="first")
+HIexp.inOVER <- HIexp.inOVER[which(!is.na(HIexp.inOVER$entrezid)),]
+isntna <- unique(na.omit(row.names(HIexp.inOVER)))
+HIexp.inOVER <-HIexp.inOVER[isntna,]
+rownames(HIexp.inOVER)<-HIexp.inOVER$entrezid
+HIexp.inOVER<-HIexp.inOVER[,-4]
+OVERexp.qval<-HIexp.inOVER$q_value
+names(OVERexp.qval)<-row.names(HIexp.inOVER)
+
+HIexp.inUNDER<-as.data.frame(genes_exp.diff[under.in,])
+HIexp.inUNDER$q_value<-HIexp.inUNDER[,"q_value"]
+HIexp.inUNDER$logFC<-HIexp.inUNDER[,"log2_fold_change"]
+ma<-max(HIexp.inUNDER$logFC[is.finite(HIexp.inUNDER$logFC)])
+mi<-min(HIexp.inUNDER$logFC[is.finite(HIexp.inUNDER$logFC)])
+HIexp.inUNDER$logFC<-replace(HIexp.inUNDER$logFC, HIexp.inUNDER$logFC == "Inf", ma)
+HIexp.inUNDER$logFC<-replace(HIexp.inUNDER$logFC, HIexp.inUNDER$logFC == "-Inf", mi)
+HIexp.inUNDER$entrezid<-mapIds(x = org.Hs.eg.db,keys =  HIexp.inUNDER$gene_id,
+                               column = "ENTREZID",keytype = "SYMBOL",multiVals="first")
+HIexp.inUNDER <- HIexp.inUNDER[which(!is.na(HIexp.inUNDER$entrezid)),]
+rownames(HIexp.inUNDER)<-HIexp.inUNDER$entrezid
+HIexp.inUNDER<-HIexp.inUNDER[,-4]
+UNDERexp.qval<-HIexp.inUNDER$q_value
+names(UNDERexp.qval)<-row.names(HIexp.inUNDER)
+
+hsagene <- enrichKEGG(gene = genes, organism='hsa', pvalueCutoff = 0.05)
+keggres <- gage(det, gsets=kegg.sets.hs, same.dir=TRUE)
+
+# Get the pathways
+kegguppathways <- data.frame(id=rownames(keggres$greater), keggres$greater) %>%
+  tbl_df() %>%
+   filter(row_number()<=15) %>%
+   .$id %>%
+   as.character()
+
+keggdownpathways <- data.frame(id=rownames(keggres$less), keggres$less) %>%
+  tbl_df() %>%
+   filter(row_number()<=15) %>%
+   .$id %>%
+   as.character()
+keggupsids <- substr(kegguppathways, start=1, stop=8)
+keggdownsids <- substr(keggdownpathways, start=1, stop=8)
+# plot multiple pathways (plots saved to disk and returns a throwaway list object)
+tmp1 = sapply(keggupsids, function(pid) pathview(gene.data=foldchanges,
+                                                 gene.idtype="ENTREZID", pathway.id=pid,
+                                                 species="hsa"))
+tmp2 = sapply(keggdownsids, function(pid) pathview(gene.data=foldchanges,
+                                                   gene.idtype="ENTREZID", pathway.id=pid,
+                                                   species="hsa"))
+```
+
+
+```{r gene-ontology-analysis, fig.cap="**Gene Ontology Over Representationa Analysis**", fig.align='center', fig.show='hold', message=FALSE, warning=FALSE, echo=FALSE}
+gocc <- enrichGO(genes,'org.Hs.eg.db', ont="CC",pAdjustMethod = "BH",pvalueCutoff = 0.05, qvalueCutoff = 0.05)
+gobp <- enrichGO(genes,'org.Hs.eg.db', ont="BP",pAdjustMethod = "BH",pvalueCutoff = 0.05, qvalueCutoff = 0.05)
+gomf <- enrichGO(genes,'org.Hs.eg.db', ont="MF",pAdjustMethod = "BH",pvalueCutoff = 0.05, qvalueCutoff = 0.05)
+
+sigGOcc <- groupGO(gene=ENTREZQvalOVERhi, OrgDb=org.Hs.eg.db, ont="CC",
+                   level=3,readable = TRUE)
+sigGOmf <- groupGO(gene=ENTREZQvalOVERhi, OrgDb=org.Hs.eg.db, ont="MF",
+                   level=3,readable = TRUE)
+sigGObp <- groupGO(gene=ENTREZQvalOVERhi, OrgDb=org.Hs.eg.db, ont="BP",
+                   level=3,readable = TRUE)
+
+xx <- annFUN.org("BP", mapping = "org.Hs.eg.db", ID = "symbol")
+topDiffGenes <- function(allScore) {
+   return(allScore < 0.05)}
+
+Qvalunder.BP.GOdata <- new("topGOdata",ontology = "BP", allGenes = UNDERexp.qval,
+                           nodeSize = 10, annot = annFUN.org,mapping = "org.Hs.eg.db",
+                           geneSel = topDiffGenes,ID = "entrez")
+Qvalunder.MF.GOdata <- new("topGOdata",ontology = "MF",allGenes = UNDERexp.qval,
+                           nodeSize = 10,annot = annFUN.org,mapping = "org.Hs.eg.db",
+                           geneSel = topDiffGenes,ID = "entrez")
+Qvalunder.CC.GOdata <- new("topGOdata",ontology = "CC",allGenes = UNDERexp.qval,
+                           nodeSize = 10, annot = annFUN.org,mapping = "org.Hs.eg.db",
+                           geneSel = topDiffGenes, ID = "entrez")
+
+HIunder.BPtKS <- runTest(Qvalunder.BP.GOdata, algorithm = "classic", statistic = "ks")
+HIunder.BPFisher <- runTest(Qvalunder.BP.GOdata, algorithm = "weight", statistic = "fisher")
+HIunder.BPtKS.elim <- runTest(Qvalunder.BP.GOdata, algorithm = "elim", statistic = "ks")
+
+HIunder.CCtKS <- runTest(Qvalunder.CC.GOdata, algorithm = "classic", statistic = "ks")
+HIunder.CCFisher <- runTest(Qvalunder.CC.GOdata, algorithm = "weight", statistic = "fisher")
+HIunder.CCtKS.elim <- runTest(Qvalunder.CC.GOdata, algorithm = "elim", statistic = "ks")
+
+HIunder.MFtKS <- runTest(Qvalunder.MF.GOdata, algorithm = "classic", statistic = "ks")
+HIunder.MFFisher <- runTest(Qvalunder.MF.GOdata, algorithm = "weight", statistic = "fisher")
+HIunder.MFFtKS.elim <- runTest(Qvalunder.MF.GOdata, algorithm = "elim", statistic = "ks")
+
+underRes.BP <- GenTable(Qvalunder.BP.GOdata, classic = HIunder.BPFisher, KS = HIunder.BPtKS,
+                   weight = HIunder.BPtKS.elim, orderBy = "weight", ranksOf = "classic",
+                   topNodes = 10)
+underRes.MF <- GenTable(Qvalunder.MF.GOdata, classic = HIunder.MFFisher, KS = HIunder.MFtKS,
+                   weight = HIunder.MFFtKS.elim, orderBy = "weight", ranksOf = "classic",
+                   topNodes = 10)
+underRes.CC <- GenTable(Qvalunder.CC.GOdata, classic = HIunder.CCFisher, KS = HIunder.CCtKS,
+                   weight = HIunder.CCtKS.elim, orderBy = "weight", ranksOf = "classic",
+                   topNodes = 10)
+#---------------------------------------------------------------------------------------
+
+Qvalover.BP.GOdata <- new("topGOdata",ontology = "BP",allGenes = OVERexp.qval,
+                          nodeSize = 10, annot = annFUN.org,mapping = "org.Hs.eg.db",
+                          geneSel = topDiffGenes,ID = "entrez")
+Qvalover.MF.GOdata <- new("topGOdata",ontology = "MF",allGenes = OVERexp.qval,
+                          nodeSize = 10, annot = annFUN.org,mapping = "org.Hs.eg.db",
+                          geneSel = topDiffGenes, ID = "entrez")
+Qvalover.CC.GOdata <- new("topGOdata",ontology = "CC",allGenes = OVERexp.qval, 
+                          nodeSize = 10, annot = annFUN.org,mapping = "org.Hs.eg.db", 
+                          geneSel = topDiffGenes, ID = "entrez")
+
+HIover.MFtKS <- runTest(Qvalover.MF.GOdata, algorithm = "classic", statistic = "ks")
+HIover.MFFisher <- runTest(Qvalover.MF.GOdata, algorithm = "weight", statistic = "fisher")
+HIover.MFFtKS.elim <- runTest(Qvalover.MF.GOdata, algorithm = "elim", statistic = "ks")
+
+HIover.CCtKS <- runTest(Qvalover.CC.GOdata, algorithm = "classic", statistic = "ks")
+HIover.CCFisher <- runTest(Qvalover.CC.GOdata, algorithm = "weight", statistic = "fisher")
+HIover.CCtKS.elim <- runTest(Qvalover.CC.GOdata, algorithm = "elim", statistic = "ks")
+
+HIover.BPtKS <- runTest(Qvalover.BP.GOdata, algorithm = "classic", statistic = "ks")
+HIover.BPFisher <- runTest(Qvalover.BP.GOdata, algorithm = "weight", statistic = "fisher")
+HIover.BPtKS.elim <- runTest(Qvalover.BP.GOdata, algorithm = "elim", statistic = "ks")
+
+overRes.BP <- GenTable(Qvalover.BP.GOdata, classic = HIover.BPFisher, KS = HIover.BPtKS,
+                   weight = HIover.BPtKS.elim, orderBy = "weight", ranksOf = "classic",
+                   topNodes = 10)
+overRes.MF <- GenTable(Qvalover.MF.GOdata, classic = HIover.MFFisher, KS = HIover.MFtKS,
+                   weight = HIover.MFFtKS.elim, orderBy = "weight", ranksOf = "classic",
+                   topNodes = 10)
+overRes.CC <- GenTable(Qvalover.CC.GOdata, classic = HIover.CCFisher, KS = HIover.CCtKS,
+                   weight = HIover.CCtKS.elim, orderBy = "weight", ranksOf = "classic",
+                   topNodes = 10)
+```
+
+```{r Gene-Ontology-Dotplots-CC-BP-MF}
+dotplot(gocc, orderBy="Count", showCategory = 25,color="p.adjust", x="GeneRatio",
+        title="Gene Ontology Dotplot of Cellular Components")
+
+dotplot(gobp, orderBy="Count", showCategory = 25,color="p.adjust", x="GeneRatio",
+        title="Gene Ontology Dotplot of Biological Processes")
+
+dotplot(gomf, orderBy="Count", showCategory = 25, color="p.adjust", x="GeneRatio",
+        title="Gene Ontology Dotplot of Molecular Functions")
+
+```
+
+```{r limma-linear-models, message=FALSE, warning=FALSE, echo=FALSE}
+lm<-lmFit(g.cnt.ma,design)
+fit.cnt <- eBayes(lmFit(g.cnt.ma,design))
+ebayes.dt <- decideTests(fit.cnt)
+summary(ebayes.dt)
+fit.lm <- lmFit(g.cnt.ma,design)
+fit.bayes <- eBayes(fit.lm)
+limma.res.cnt=topTable(fit.bayes,coef=1,n=Inf,sort="p")
+f.bayes.limma <- decideTests(fit.bayes,adjust.method = "BH",lfc = 1, p.value = 0.05)
+tfit1 <- treat(fit.bayes)
+limma.siggenes<-subset(tfit1$p.value,tfit1$F.p.value < 0.05)
+limma.res.cnt.sig<-subset(limma.res.cnt,
+                          (limma.res.cnt$adj.P.Val < 0.05) & (limma.res.cnt$logFC > 1))
+summary(tfit1)
+fdr.rate=as.numeric(sum(limma.res.cnt.sig$P.Value <0.01))-sum(limma.res.cnt.sig$adj.P.Val <0.01)
+limmapower<-1-fdr.rate/length(limma.res.cnt.sig$P.Value < 0.01)
+limmapower
+
+
+y <- cpm(g.cnt.ma,log=TRUE,prior.count=1)
+fit <- lmFit(y,design,weights=NULL)
+fit <- eBayes(fit,trend=TRUE)
+dt <- decideTests(fit)
+summary(dt)
+# limma notrend - ranked by lods
+fit <- eBayes(fit,trend=FALSE)
+o <- order(fit$lods[,2], decreasing=TRUE)
+# t-test
+t.ord <- fit$coef[,2]/fit$stdev.unscaled[,2]/fit$sigma
+p.ord <- pt(abs(t.ord),df=4,lower.tail=FALSE)*2
+fdr.ord <- p.adjust(p.ord,method="BH")
+o <- order(p.ord)
+sum(fdr.ord<0.5)
+
+```
+
+
+```{r limma-voom-linear-models,fig.align="center", message=FALSE, warning=FALSE, echo=FALSE}
+
+dgel<- DGEList(counts=g.cnt.ma, group=factor(groups))
+dge.norm <- calcNormFactors(dgel)
+log2.cpm <- voom(dge.norm,design,plot=T)
+fit.lm <- lmFit(log2.cpm,design)
+fit.bayes <- eBayes(fit.lm)
+tfit1 <- treat(fit.bayes)
+f.bayes.voom <- decideTests(fit.bayes)
+voom.siggenes<-subset(tfit1$p.value,tfit1$F.p.value < 0.05)
+voom.res.cnt=topTable(fit.bayes,coef=2,n=Inf,sort="p")
+voom.res.cnt.sig<-subset(voom.res.cnt,
+                          (voom.res.cnt$adj.P.Val < 0.01) & (voom.res.cnt$logFC > 2))
+
+fdr.rate<-sum(tfit1$p.value <0.01)-sum(tfit1$F.p.value <0.01)
+voompower<-1-fdr.rate/length(tfit1$p.value)
+voompower
+
+```
+
+
+
+```{r edgeR-Diff-Expr, fig.margin=TRUE,fig.align="center", message=FALSE, warning=FALSE, echo=FALSE}
+# Classic Approach without filtering
+g.cnt.ma<-g.cnt.ma[row.names(g.cnt.ma),]
+#design <- model.matrix(~0 + lanes, data=replicates.df)
+#colnames(design)<-c("CTRL_L1T4", "CTRL_L5T8", "LUTS_L1T4", "LUTS_L5T8")
+#row.names(design) <- replicates.df$rep_names
+# contrast matrix
+#contr.matrix <- makeContrasts(CTRL_L1T4 - LUTS_L1T4, CTRL_L1T4 - LUTS_L5T8,
+#                              CTRL_L5T8 - LUTS_L5T8, CTRL_L5T8 - LUTS_L1T4, 
+#                              levels = c("CTRL_L1T4", "CTRL_L5T8", "LUTS_L1T4", "LUTS_L5T8"))
+# Classic Approach without filtering
+dgeObj <- DGEList(counts=g.cnt.ma, group=grp.fac)
+dgeObj <- calcNormFactors(dgeObj,method = "TMM")
+e.disp<-estimateDisp(dgeObj, design)
+plotBCV(e.disp, main="Coefficient of Variation of Unfiltered Counts per Million")
+qlf <- glmQLFit(e.disp, coef=1.5, dispersion=0.05)
+plotQLDisp(qlf)
+qlft <- glmQLFTest(qlf, coef=1.5)
+topTags(qlft)
+is.de <- decideTests(qlft, p.value=0.01)
+summary(is.de)
+sp <- diffSpliceDGE(qlft, geneid="GeneID")
+exactTst <- exactTest(qlf)
+ex.sig <- subset(exactTst$table, (PValue < 0.05))
+
+
+z <- estimateGLMTrendedDisp(g.cnt.ma,design)
+fite <- glmFit(g.cnt.ma,design,dispersion=z)
+lrt <- glmLRT(fite, contrast=contr.matrix)
+dt <- decideTests(lrt)
+lrt.sig <- subset(lrt$table, (PValue < 0.05))
+sum(p.adjust(lrt$table$PValue,method="BH")<0.05)
+topTags(lrt)
+
+d<- DGEList(counts=g.cnt.ma, group=grp.fac,
+            remove.zeros=TRUE,genes = row.names(g.cnt.ma))
+d <- calcNormFactors(d)
+d = estimateCommonDisp(d)
+d = estimateTagwiseDisp(d)
+exactTst <- exactTest(d)
+exactTest.top <- subset(exactTst$table, (PValue < 0.05))
+edgeR.sigGenes<-rownames(exactTest.top)
+# length(edgeR.sigGenes)
+## Identify genes with at least 1 cpm in at least all of the samples of a group
+keep.exprs <- filterByExpr(d, group=grp.fac)
+counts = d[keep.exprs,]
+# Classic Approach after filtering
+DGEobj.f=DGEList(counts,group=grp.fac, remove.zeros=TRUE,genes = row.names(counts))
+DGEobj.f = calcNormFactors(DGEobj.f)
+DGEobj.f = estimateCommonDisp(DGEobj.f)
+DGEobj.f = estimateTagwiseDisp(DGEobj.f)
+DGEobj.d <- estimateDisp(DGEobj.f,design)
+
+d2 <- estimateGLMCommonDisp(d,design)
+d2 <- estimateGLMTrendedDisp(d2,design, method="auto")
+# You can change method to "auto", "bin.spline", "power", "spline", "bin.loess".
+# The default is "auto" which chooses "bin.spline" when > 200 tags and "power" otherwise.
+d2 <- estimateGLMTagwiseDisp(d2,design)
+exactTst <- exactTest(DGEobj.d, pair=levels(DGEobj.d$samples$group),
+                         dispersion ="trended")
+o.sig.after.filt <- subset(exactTst$table, (PValue < 0.05))
+edgeR.f.sigGenes<-rownames(o.sig.after.filt)
+results_edgeR <- topTags(exactTst, n = length(rownames(o.sig.after.filt)), sort.by = "logFC")
+
+fdr.rate<-sum(exactTest.top$PValue <0.05)-sum(o.sig.after.filt$PValue <0.05)
+edgerpower<-1-(fdr.rate/length(exactTest.top$PValue))
+edgerpower
+```
+
+```{r edgeR-limma-tailor-overlap, fig.margin=TRUE, message=FALSE, warning=FALSE, echo=FALSE}
+c.v.sig_genes.df<-subset(sig_genes_exp.diff, 
+                         sig_genes_exp.diff$gene_id %in% row.names(voom.res.cnt.sig))
+
+c.e.sig_genes.df<-subset(sig_genes_exp.diff, 
+                         sig_genes_exp.diff$gene_id %in% edgeR.f.sigGenes)
+
+c.v.e.sig_genes.df<-subset(c.v.sig_genes.df, 
+                           c.v.sig_genes.df$gene_id %in% c.e.sig_genes.df$gene_id)
+```
+
+
+```{r mean-var-plot-egdeR,fig.cap="**Mean Variance Plots**", fig.align="center", out.height = "75%",  out.width = "45%", fig.show='hold', message=FALSE, warning=FALSE, echo=FALSE}
+plotMeanVar(d, show.tagwise.vars=F, NBline=TRUE, main="Mean-Variance Relationship for All Gene Expression Levels")
+plotMeanVar(DGEobj.f, show.tagwise.vars=T, NBline=TRUE, main="Tagwise Mean-Variance Relationship")
+```
+
+```{r sample-density-before-normalization, out.height = "75%",  out.width = "45%",  eval=FALSE, message=FALSE, warning=FALSE, echo=FALSE}
+#pdf(file="/media/drew/easystore/umb_triley/Thesis/Tailor_Plots_for_Thesis.pdf")
+design <- model.matrix(~0 + lanes, data=replicates.df)
+colnames(design)<-c("CTRL_L1T4", "CTRL_L5T8", "LUTS_L1T4", "LUTS_L5T8")
+row.names(design) <- replicates.df$rep_names
+# contrast matrix
+contr.matrix <- makeContrasts(CTRL_L1T4 - LUTS_L1T4, CTRL_L1T4 - LUTS_L5T8,
+                              CTRL_L5T8 - LUTS_L5T8, CTRL_L5T8 - LUTS_L1T4,
+                              levels = c("CTRL_L1T4", "CTRL_L5T8",
+                                         "LUTS_L1T4", "LUTS_L5T8"))
+g.cnt.ma<-g.cnt.ma[row.names(g.cnt.ma),]
+grps<-data.frame(samples = colnames(g.cnt.ma), condition=grp.fac)
+# Classic Approach without filtering
+d<- DGEList(counts=g.cnt.ma, group=grp.fac, remove.zeros=TRUE,genes = row.names(g.cnt.ma))
+g.CPM.ma <- cpm(d, prior.count=1)
+g.LCPM.ma <- cpm(d, log=TRUE, prior.count=1)
+## filter genes with less than 1 cpm in at least 9 samples
+keep.exprs <- rowSums(d$counts > 1) >= length(colnames(g.cnt.ma))/2
+# Subset the rows of countdata to keep the more highly expressed genes
+g.f.LCPM.ma <- as.data.frame(g.LCPM.ma[keep.exprs,])
+norm.factors <- calcNormFactors(g.cnt.ma, method = "TMM")
+L <- mean(replicates.df$total_mass) * 1e-6
+M <- median(replicates.df$total_mass) * 1e-6
+lcpm.cutoff <- log(10/M + 2/L)
+nsamples <- ncol(g.LCPM.ma)
+```
+
+```{r gene-expr-density-before-and-after}
+nsamples<-as.numeric(length(colnames(g.LCPM.ma)))
+col <- brewer.pal(nsamples/2, "Paired")
+plot(density(g.LCPM.ma[,1]), col=col[1], lwd=2, ylim=c(0,0.99), las=2, main="", xlab="") 
+title(main="Log Counts per Million before Filtering", xlab="Log(Counts/Million)")
+abline(v=lcpm.cutoff, lty=3)
+col <- brewer.pal(c(nsamples/2), "Paired")
+for (i in 2:nsamples){
+   den <- density(g.LCPM.ma[,i])
+   lines(den$x, den$y, col=col[i], lwd=2)
+   legend(legend = colnames(g.LCPM.ma), "topright", text.col=col, bty="n")}
+
+plot(density(g.f.LCPM.ma[,1]), col=col[1], lwd=2, ylim=c(0,0.99), las=2, main="", xlab="")
+title(main="Log Counts per Million after Filtering", xlab="Log(Counts/Million)")
+abline(v=lcpm.cutoff, lty=3)
+col <- brewer.pal(c(nsamples/2), "Paired")
+for (i in 2:nsamples){
+   den <- density(g.f.LCPM.ma[,i])
+   lines(den$x, den$y, col=col[i], lwd=2)
+      legend(legend = colnames(g.f.LCPM.ma), "topright", text.col=col, bty="n")}
+```
+
+```{r Smear-plot-egdeR,fig.cap="**MA plot of Gene Expression Ratio of LUTS over CTRL**", fig.align="center", out.height = "75%",  out.width = "65%", fig.show='hold', message=FALSE, warning=FALSE, echo=FALSE}
+plotSmear(DGEobj.f, de.tags = edgeR.f.sigGenes,smooth.scatter=F,
+          main="MA plot of Genes Expression Ratio of LUTS over CTRL")
+abline(h=c(-2,2), col=c("yellow", "blue"), lty=c(1,1), lwd=c(3, 3))
+```
+
+```{r Biological Correlation-plot-egdeR,fig.cap="Biological Correlation Plots", fig.align="center", out.height = "75%",  out.width = "45%", fig.show='hold', message=FALSE, warning=FALSE, echo=FALSE}
+par(mfrow=c(2,2))
+genas(fit.lm, coef=c(1,2), plot=TRUE,alpha=0.75,subset="all")
+  title(main="Biological Correlation of Gene Expression Across Groups")
+genas(fit.lm, coef=c(1,3), plot=TRUE,alpha=0.75)
+  title(main="Biological Correlation of Gene Expression Across Groups")
+genas(fit.lm, coef=c(1,4), plot=TRUE,alpha=0.75)
+  title(main="Biological Correlation of Gene Expression Across Groups")
+genas(fit.lm, coef=c(2,3), plot=TRUE,alpha=0.75)
+  title(main="Biological Correlation of Gene Expression Across Groups")
+par(mfrow=c(1,1))
+```
+
+
+```{r coefficient-variation-plot-egdeR,fig.cap="**Coefficient of Variation Plots**", fig.align="center", out.height = "75%",  out.width = "45%", fig.show='hold', message=FALSE, warning=FALSE, echo=FALSE}
+plotBCV(d, main="Coefficient of Variation of Unfiltered Counts per Million")
+# fisher exact test
+plotBCV(DGEobj.d, main="Coefficient of Variation of Read Counts per Million")
+```
+
+```{r limma-voom-Venn-Diagrams, fig.cap="**Limma and Voom Gene Expression Venn Diagrams**",fig.align="center", out.width = "50%", out.height="75%", fig.show='hold', message=FALSE, warning=FALSE, echo=FALSE}
+
+vennDiagram(f.bayes.limma[, 1:4], circle.col = c("orange", "purple"),main=paste("Limma Overlap of Gene Expression for", under, "and", over, "across all Lanes"),include="up",show.include=F,
+            names=colnames(f.bayes.limma))
+
+vennDiagram(f.bayes.voom[, 1:4], circle.col = c("orange", "purple"),main=paste("Voom Overlap of Gene Expression for", under, "and", over, "across all Lanes"),include="up",show.include=F,
+            names=colnames(ebayes.dt))
+
+```
+
+
+```{r limma-voom-MAplots, fig.cap="**Limma and Voom Mean-Difference Plots (MAplots)**",fig.align="center", out.width = "45%", out.height="75%", fig.show='hold', message=FALSE, warning=FALSE, echo=FALSE}
+par(mfrow=c(2,2))
+plotMD(tfit, column = 1, status = f.bayes.limma[, 1],
+       main = paste0("Limma Mean-Difference of Up and Down Regulated Genes in ",
+                     under, sep=""))
+plotMD(tfit, column = 2, status = f.bayes.limma[, 2],
+      main = paste0("Limma Mean-Difference of Up and Down Regulated Genes in ",
+                    over, sep=""))
+
+plotMD(tfit, column = 1, status = f.bayes.voom[, 1],
+       main = paste0("Voom Mean-Difference of Up and Down Regulated Genes in ",
+                     under, sep=""))
+plotMD(tfit, column = 2, status = f.bayes.voom[, 2],
+       main = paste0("Voom Mean-Difference of Up and Down Regulated Genes in ",
+                     over, sep=""))
+par(mfrow=c(1,1))
+
+```
+
+```{r inline-code}
+' r ![KEGG-Pathway-Visualization](/media/drew/easystore/umb_triley/urine1/hsa04062.pathview.png)'
+kegguppathways
+keggdownpathways
+
+```
+
+
+```{r gene-ontology-cc-barplots, fig.cap="Gene Ontology Cellular Component Enrichment Analysis", fig.align='center', fig.show='hold', message=FALSE, warning=FALSE, echo=FALSE}
+barplot(sigGOcc, drop=TRUE, showCategory=12)+ ggtitle("Significant Differentially Expressed Gene Ontology Cellular Components")
+```
+```{r gene-ontology-mf-barplots, fig.cap="Gene Ontology Molecular Function Enrichment Analysis", fig.align='center', fig.show='hold', message=FALSE, warning=FALSE, echo=FALSE}
+barplot(sigGOmf, drop=TRUE, showCategory=12)+ ggtitle("Significant Differentially Expressed Gene Ontology Molecular Functions")
+```
+```{r gene-ontology-bp-barplots, fig.cap="Gene Ontology Biological Processes Enrichment Analysis", fig.align='center', fig.show='hold', message=FALSE, warning=FALSE, echo=FALSE}
+barplot(sigGObp, drop=TRUE, showCategory=12)+ ggtitle("Significant Differentially Expressed Gene Ontology Biological Processes")
+```
+
+```{r gene-ontology-analysis-LUTS-bp-plots, fig.cap="Gene Ontology Biological Processes Over Representationa Analysis", fig.align='center', fig.show='hold', message=FALSE, warning=FALSE, echo=FALSE}
+# LUTS Group
+showSigOfNodes(Qvalover.BP.GOdata, score(HIover.BPtKS), firstSigNodes=5,useInfo = "all")
+```
+```{r gene-ontology-analysis-LUTS-mf-plots, fig.cap="Gene Ontology Molecular Function Over Representationa Analysis", fig.align='center', fig.show='hold', message=FALSE, warning=FALSE, echo=FALSE}
+# LUTS Group
+showSigOfNodes(Qvalover.MF.GOdata, score(HIover.MFtKS), firstSigNodes=5, useInfo = "all")
+```
+```{r gene-ontology-analysis-LUTS-cc-plots, fig.cap="Gene Ontology Cellular Component Over Representationa Analysis", fig.align='center', fig.show='hold', message=FALSE, warning=FALSE, echo=FALSE}
+# LUTS Group
+showSigOfNodes(Qvalover.CC.GOdata, score(HIover.CCtKS), firstSigNodes =5, useInfo = "all" )
+```
+
+```{r gene-ontology-analysis-CTRL-bp-plots, fig.cap="Gene Ontology Biological Processes Over Representationa Analysis", fig.align='center', fig.show='hold', message=FALSE, warning=FALSE, echo=FALSE}
+# CTRL Group
+showSigOfNodes(Qvalunder.BP.GOdata, score(HIunder.BPtKS), firstSigNodes=5,useInfo = "all")
+```
+```{r gene-ontology-analysis-CTRL-mf-plots, fig.cap="Gene Ontology Molecular Function Over Representationa Analysis", fig.align='center', fig.show='hold', message=FALSE, warning=FALSE, echo=FALSE}
+# CTRL Group
+showSigOfNodes(Qvalunder.MF.GOdata, score(HIunder.MFtKS), firstSigNodes=5, useInfo = "all")
+```
+```{r gene-ontology-analysis-CTRL-cc-plots, fig.cap="Gene Ontology Cellular Component Over Representationa Analysis", fig.align='center', fig.show='hold', message=FALSE, warning=FALSE, echo=FALSE}
+# CTRL Group
+showSigOfNodes(Qvalunder.CC.GOdata, score(HIunder.CCtKS), firstSigNodes =5, useInfo = "all" )
+```
+
+```{r STRINGdb-network-analysis, fig.cap="**Prior Information Guided Sub-Network Discovery from STRINGdb Query**", fig.align='center', fig.show='hold', message=FALSE, warning=FALSE, echo=FALSE}
+gene.exp.diff<-data.frame(genes=genes_exp.diff$gene_id,
+                          logFC=genes_exp.diff$log2_fold_change,
+                          p_value=genes_exp.diff$p_value,
+                          q_value=genes_exp.diff$q_value)
+
+species.all<-get_STRING_species(version="10", species_name=NULL)
+hsa<-grep(pattern='Homo sapiens', species.all$official_name, ignore.case = T)
+taxa.info<-species.all[hsa,]
+taxID<-taxa.info$species_id
+string.db.hsa<-STRINGdb$new(version="10", species=taxID)
+string.db.hsa
+gene.exp.diff.mapped<-string.db.hsa$map(gene.exp.diff, "genes", removeUnmappedRows = TRUE )
+# enrichment
+gene.exp.diff.de.df<-as.data.frame(cbind(gene=gene.exp.diff.mapped$genes,
+                                         pvalue=gene.exp.diff.mapped$p_value,
+                                         logFC=gene.exp.diff.mapped$logFC), stringsAsFactors=F)
+
+gene.exp.diff.intersected<-string.db.hsa$map(gene.exp.diff.de.df, "gene", removeUnmappedRows=T)
+string.db.hsa$plot_network(gene.exp.diff.intersected$STRING_id[1:25])
+
+```
+
+```{r luts-characteristic-subnets, fig.align='center',out.height="75%",message=FALSE, warning=FALSE, echo=FALSE}
+plot(oh.mst.clustering, oh.mst,layout=layout.fruchterman.reingold,
+     edge.curved=TRUE,vertex.size=oh.vSizes, vertex.label.dist=0.6,
+     vertex.label.color="blue", asp=FALSE,vertex.label.cex=0.6,
+     edge.width=oh.edgeweights, edge.arrow.mode=0,
+	  main=paste0("Up regulated Genes in the ", over, " Patient Group"))
+```
+
+```{r ctrl-characteristic-subnets, fig.align='center',out.height="75%",  message=FALSE, warning=FALSE, echo=FALSE}
+plot(ol.mst.clustering, ol.mst,layout=layout.fruchterman.reingold,
+     edge.curved=TRUE,vertex.size=ol.vSizes, vertex.label.dist=-0.5,
+     vertex.label.color="black", asp=FALSE,vertex.label.cex=0.6,
+     edge.width=ol.edgeweights, edge.arrow.mode=0,
+     main=paste0("Down regulated Genes in the ", over, " Patient Group"))
+```
+
+```{r gene-ontology-analysis-tables, fig.cap="**Gene Ontology Over Representationa Analysis**", fig.align='center', message=FALSE, warning=FALSE, echo=FALSE}
+kable(overRes.BP, "latex", longtable = T, booktabs = T, 
+      caption = paste("This a Table of the Significant Gene Ontology Features at the Biological Process Level for the ", over, "Group")) %>%
+   kable_styling(position = "center")
+
+kable(overRes.MF, "latex", longtable = T, booktabs = T,
+      caption = paste("This a Table of the Significant Gene Ontology Features at the Molecular Function Level for the ", over, "Group")) %>%
+   kable_styling(position = "center")
+      
+kable(overRes.CC, "latex", longtable = T, booktabs = T,
+      caption = paste("This a Table of the Significant Gene Ontology Features at the Cellular Component Level for the ", over, "Group")) %>%
+   kable_styling(position = "center")
+
+kable(underRes.BP, "latex", longtable = T, booktabs = T, 
+      caption = paste("This a Table of the Significant Gene Ontology Features at the Biological Process Level for the ", under, "Group")) %>%
+   kable_styling(position = "center")
+
+kable(underRes.MF, "latex", longtable = T, booktabs = T,
+      caption = paste("This a Table of the Significant Gene Ontology Features at the Molecular Function Level for the ", under, "Group")) %>%
+   kable_styling(position = "center")
+      
+kable(underRes.CC, "latex", longtable = T, booktabs = T,
+      caption = paste("This a Table of the Significant Gene Ontology Features at the Cellular Component Level for the ", under, "Group")) %>%
+   kable_styling(position = "center")
+
+```
+
+```{r edgeR-limma-tailor-overlap-tables, message=FALSE, warning=FALSE, echo=FALSE}
+sig.lists<-c(c.v.sig_genes.df,c.e.sig_genes.df,c.v.e.sig_genes.df)
+
+kable(sig.lists, "latex", longtable = T, booktabs = T, caption = paste("This a table of all the significant differential expression from each method")) %>%
+   kable_styling(position = "center")
+
+kable(c.v.sig_genes.df, "latex", longtable = T, booktabs = T, caption = paste("This a table of all the significant differential expression identified with the Voom package")) %>%
+   kable_styling(position = "center")
+
+kable(c.e.sig_genes.df, "latex", longtable = T, booktabs = T, caption = paste("This a table of all the significant differential expression identified with the EdgeR package")) %>%
+   kable_styling(position = "center")
+
+kable(c.v.e.sig_genes.df, "latex", longtable = T, booktabs = T, caption = paste("This a table of all the overlapping significant differential expression identified by each method")) %>%
+   kable_styling(position = "center")
+
+dev.off()
+```

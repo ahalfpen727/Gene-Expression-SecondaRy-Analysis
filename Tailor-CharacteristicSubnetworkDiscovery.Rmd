@@ -1,0 +1,1303 @@
+---
+title: 'The Tailor RNA-Seq Pipeline: a Tool for Characteristic Subnetwork Discovery and Disease Biomarker Identification'
+author: "Andrew Judell-Halfpenny"
+date: "Fall Semester 2018"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r}
+#library(gaggle) ;library(predictionet)
+library(graph);library(network);library(graphite)
+library(RITANdata);library(gageData);library(EGSEAdata)
+library(biomaRt);library(ggplot2); library(gplots)
+library(DLBCL);library(pathview);library(AnnotationDbi)
+library(org.Hs.eg.db);library(limma);library(edgeR)
+library(multtest);library(nortest);library(outliers)
+library(igraph);library(tidyverse);library(pvclust)
+library(cummeRbund);library(pastecs);library(psych)
+library(genefilter);library(Hmisc);library(ellipse)
+library(RColorBrewer);library(VennDiagram)
+library(cummeRbund);library(BioNet)
+
+data(go.sets.hs);data(go.subs.hs);data(bods)
+data(interactome);data(dataLym);data(korg)
+data(go.sets.hs);data(go.subs.hs)
+data(kegg.sets.hs);data(sigmet.idx.hs)
+names(geneset_list)
+
+kegg.sets.hs = kegg.sets.hs[sigmet.idx.hs]
+go.sets.BP = go.sets.hs[go.subs.hs$BP]
+go.sets.CC = go.sets.hs[go.subs.hs$CC]
+go.sets.MF = go.sets.hs[go.subs.hs$MF]
+
+go.bp.sym<-lapply(go.sets.BP, eg2sym)
+go.mf.sym<-lapply(go.sets.MF, eg2sym)
+go.cc.sym<-lapply(go.sets.CC, eg2sym)
+
+# sequence data
+genome.fa="/media/drew/umb_triley/umb_triley/ReferenceGenomes/UCSC_hg38/genome.fa"
+refgtf="/media/drew/umb_triley/umb_triley/ReferenceGenomes/UCSC_hg38/genes.gtf"
+inDir="/media/drew/umb_triley/umb_triley/urine1/cuffdiff_results_hg38_default/LUTS-over-CTRL"
+cuff<-cummeRbund::readCufflinks(dir=inDir,genome=genome.fa,gtfFile=refgtf, rebuild=F)
+
+gtfDir="/media/drew/umb_triley/umb_triley/urine1/cuffcompare_results_hg38_gtf_guided"
+gtffile <- file.path(gtfDir,"cuffcmp.combined.gtf")
+cuffcmp="/media/drew/umb_triley/umb_triley/urine1/cuffcompare_results_hg38_gtf_guided/cuffcmp.combined.gtf"
+mergedgtf <- readGFF(cuffcmp)
+hg38.genes.gtf<-as.data.frame(mergedgtf)
+head(hg38.genes.gtf)
+table(hg38.genes.gtf$seqid)
+novelmerged<-hg38.genes.gtf[which(hg38.genes.gtf["class_code"] != "="),]
+novel.hg38.granges<-makeGRangesFromDataFrame(novelmerged, keep.extra.columns=TRUE)
+hg38.granges<-makeGRangesFromDataFrame(hg38.genes.gtf, keep.extra.columns=TRUE)
+txdb<-makeTxDbFromGFF(file ="/media/drew/umb_triley/umb_triley/urine1/cuffcompare_results_hg38_gtf_guided/cuffcmp.combined.gtf", format="gtf", circ_seqs=character(),organism = "Homo sapiens")
+txdb <- makeTxDbFromGFF(gtffile, format="gtf", circ_seqs=character())
+#load the human Entrez gene identifiers package
+library(org.Hs.eg.db)
+# how to get GO terms from an Entrez gene id following the manual
+# http://bioconductor.org/packages/release/data/annotation/manuals/org.Hs.eg.db/man/org.Hs.eg.db.pdf
+# org.Hs.egGO is an R object that provides
+# mappings between Entrez gene identifers and the GO
+# identifers that they are directly associated with
+entrez_object <- org.Hs.egGO
+class(entrez_object)
+# Get the Entrez gene IDs that are mapped to a GO ID
+mapped_genes <- mappedkeys(entrez_object)
+ 
+# Entrez gene IDs
+head(mapped_genes)
+# map GO IDs to Entrez IDs and convert to a list
+entrez_to_go <- as.list(entrez_object[mapped_genes])
+ 
+length(entrez_to_go)
+
+# http://www.ncbi.nlm.nih.gov/gene/?term=1
+# entrez gene id 1 is A1BG
+# below are the GO terms associated with the gene
+sapply(entrez_to_go[[1]], function(x) x)
+
+# perform the reverse and map GO terms to Entrez gene ids
+go_object <- as.list(org.Hs.egGO2EG)
+ 
+length(go_object)
+
+# GO:0000002 -> mitochondrial genome maintenance
+# entrez gene id 291 -> SLC25A4
+# which if you look up has the GO term mitochondrial genome maintenance
+go_object[1]
+
+head(keys(org.Hs.eg.db))
+my_keys <- head(keys(org.Hs.eg.db))
+
+keytypes(org.Hs.eg.db)
+columns(org.Hs.eg.db)
+#selecting
+select(org.Hs.eg.db,
+       keys = my_keys,
+       columns=c("ENTREZID","SYMBOL","GENENAME"),
+       keytype="ENTREZID")
+
+class(org.Hs.egENSEMBL2EG)
+
+head(keys(org.Hs.egENSEMBL2EG))
+#store some Ensembl Gene ids to probe
+my_ensg_keys <- head(keys(org.Hs.egENSEMBL2EG))
+ 
+#lookup between Ensembl Gene ids to Entrez Gene ids
+select(org.Hs.eg.db,
+       keys = my_ensg_keys,
+       columns=c("ENSEMBL","ENTREZID","SYMBOL","GENENAME"),
+       keytype="ENSEMBL")
+
+#For genome annotation purposes, one may be interested in the gene models, which are provided in the 
+library(TxDb.Hsapiens.UCSC.hg38.knownGene)
+library(TxDb.Hsapiens.UCSC.hg19.knownGene)
+class(TxDb.Hsapiens.UCSC.hg19.knownGene)
+#to see what columns can be returned
+# use the columns() function
+columns(TxDb.Hsapiens.UCSC.hg19.knownGene)
+
+select(TxDb.Hsapiens.UCSC.hg19.knownGene,
+       keys = head(keys(TxDb.Hsapiens.UCSC.hg19.knownGene)),
+       columns=c('GENEID', 'TXCHROM', 'TXSTART', 'TXEND', 'TXID'),
+       keytype="GENEID")
+ 
+my_genes <- c("LRRK2","PINK1")
+ 
+#symbol and OMIM
+a <- select(org.Hs.eg.db,
+            keys = my_genes,
+            columns=c("ENTREZID", "SYMBOL","OMIM"),
+            keytype="SYMBOL")
+ 
+#symbol and transcript location
+b <- select(TxDb.Hsapiens.UCSC.hg19.knownGene,
+            keys = a$ENTREZID,
+            columns=c('GENEID', 'TXCHROM', 'TXSTART', 'TXEND', 'TXID'),
+            keytype="GENEID")
+ 
+names(b) <- c('ENTREZID', 'TXID', 'TXCHROM', 'TXSTART', 'TXEND')
+c <- merge(a, b, 'ENTREZID')
+#install if necessary
+
+library("biomaRt")
+ensembl <- useMart(biomart = "ensembl",dataset = 'ENSEMBL_MART_SNP' )
+ 
+                   dataset = "hsapiens_gene_ensembl", 
+                   mirror = "useast")
+ensembl=useMart("ensembl")
+ensembl.snp <- useEnsembl(biomart = "ensembl", dataset = 'ENSEMBL_MART_SNP')
+snps<-useMart("ENSEMBL_MART_SNP")
+grch38.snps<-listDatasets(snps)
+grch38.SNPs<-grch38.snps[12,]
+#building a query, requires filters, attributes and values
+#listAttributes shows all attributes
+grch38snps<-grch38.snps$dataset[12]
+snps@dataset
+grch38snps
+hsSNPs<-grch38.snps$dataset[13]
+head(hsSNPs)
+library("biomaRt")
+som.sv.mart = useMart("ENSEMBL_MART_SNP",dataset = "hsapiens_structvar_som")
+sv.mart = useMart("ENSEMBL_MART_SNP", dataset="hsapiens_structvar")
+ensembl.snp = useMart("ENSEMBL_MART_SNP", dataset = "hsapiens_snp")
+som.ensembl.snp = useMart("ENSEMBL_MART_SNP", dataset = "hsapiens_snp_som")
+listDatasets(som.ensembl.snp)
+listFilters(som.ensembl.snp)
+
+#look for filters with RefSeq
+grep("refseq", filters$name, ignore.case=T, value=T)
+library(biomaRt)
+snp <- useMart("snp",dataset="hsapiens_snp")
+start <- Sys.time()
+out=getBM(attributes=c("refsnp_id","allele","chrom_start"),
+          filters=c("chr_name","start","end"),
+          values=list(8,148350, 158612),
+          mart=snp)
+end <- Sys.time()
+print(end - start)
+
+my_snp_detail <- getBM(attributes=c("refsnp_id","allele","chrom_start"),
+                       filters=c("snp_filter"),
+                       values=my_snp,
+                       mart=snp)
+attributes = listAttributes(grch38.snps)
+ 
+#RefSeq for beta actin
+my_refseq <- 'NM_001101'
+getBM(attributes='ensembl_gene_id', filters = 'refseq_mrna', values = my_refseq , mart = ensembl)
+#  ensembl_gene_id
+#1 ENSG00000075624
+getBM(attributes=c('ensembl_gene_id','description'), filters = 'refseq_mrna', values = my_refseq , mart = ensembl)
+library("biomaRt")
+ensembl<- useMart("ensembl")
+ensembl = useMart("ensembl",dataset="hsapiens_gene_ensembl")
+ 
+#find the GO attribute name
+grep("go",attributes$name, ignore.case=T, value=T)
+grep("ensembl", filters$name, ignore.case=T, value=T)
+
+getBM(attributes="go_id", filters="ensembl_gene_id", values = test, mart = ensembl)
+
+biocLite("GO.db")
+ 
+library("GO.db")
+goooo <- getBM(attributes="go_id", filters="ensembl_gene_id", values = test, mart = ensembl)
+Term(goooo)
+as.data.frame(Term(goooo))
+Error in data.frame(`Term(goooo)` = c("axon guidance", "axonogenesis",  : 
+  row names contain missing values
+ 
+#one of the GO terms is obsolete, use na.omit to circumvent
+na.omit(as.data.frame(Term(goooo)))
+                                           
+Term(goooo)
+
+ 
+for(go in goooo[1:5]){
+print(GOTERM[[go]])
+   cat("--------------------------------------\n")
+}
+
+
+```
+
+```{r msidb, message=FALSE, warning=FALSE, include=FALSE}
+
+# human data
+load(url("http://bioinf.wehi.edu.au/software/MSigDB/human_H_v5p2.rdata"))
+load(url("http://bioinf.wehi.edu.au/software/MSigDB/human_c1_v5p2.rdata"))
+load(url("http://bioinf.wehi.edu.au/software/MSigDB/human_c2_v5p2.rdata"))
+load(url("http://bioinf.wehi.edu.au/software/MSigDB/human_c3_v5p2.rdata"))
+load(url("http://bioinf.wehi.edu.au/software/MSigDB/human_c4_v5p2.rdata"))
+load(url("http://bioinf.wehi.edu.au/software/MSigDB/human_c6_v5p2.rdata"))
+load(url("http://bioinf.wehi.edu.au/software/MSigDB/human_c5_v5p2.rdata"))
+load(url("http://bioinf.wehi.edu.au/software/MSigDB/human_c7_v5p2.rdata"))
+
+# mouse data
+load(url("http://bioinf.wehi.edu.au/software/MSigDB/mouse_H_v5p2.rdata"))
+load(url("http://bioinf.wehi.edu.au/software/MSigDB/mouse_c1_v5p2.rdata"))
+load(url("http://bioinf.wehi.edu.au/software/MSigDB/mouse_c2_v5p2.rdata"))
+load(url("http://bioinf.wehi.edu.au/software/MSigDB/mouse_c3_v5p2.rdata"))
+load(url("http://bioinf.wehi.edu.au/software/MSigDB/mouse_c4_v5p2.rdata"))
+load(url("http://bioinf.wehi.edu.au/software/MSigDB/mouse_c6_v5p2.rdata"))
+load(url("http://bioinf.wehi.edu.au/software/MSigDB/mouse_c5_v5p2.rdata"))
+load(url("http://bioinf.wehi.edu.au/software/MSigDB/mouse_c7_v5p2.rdata"))
+```
+
+
+```{r import-gene-expr}
+genome="/media/drew/umb_triley/umb_triley/Reference-Genomes/Human/UCSC_hg38/genome.fa"
+refgtf="/media/drew/umb_triley/umb_triley/Reference-Genomes/Human/UCSC_hg38/genes.gtf"
+inDir="/media/drew/umb_triley/umb_triley/urine1/cuffdiff_results_hg38_default/LUTS-over-CTRL/"
+
+cuff<-readCufflinks(dir=inDir,genome="/media/drew/umb_triley/umb_triley/Reference-Genomes/Human/UCSC_hg38/genome.fa",gtfFile="/media/drew/umb_triley/umb_triley/Reference-Genomes/Human/UCSC_hg38/genes.gtf", rebuild=F)
+
+replicates.info<-cummeRbund::replicates(cuff)
+replicates.info
+
+groups<-replicates.info$sample_name
+samples<-replicates.info$rep_name
+conditions<-as.factor(groups)
+conditions
+samples
+groups
+
+under=groups[1]
+over=groups[((length(groups)/2)+1)]
+over;under
+# design matrix
+design <- model.matrix(~0 +groups, data=replicates.info)
+colnames(design) <- levels(conditions)
+row.names(design) <- samples
+design
+# contrast matrix
+contr.matrix <- makeContrasts(LUTS - CTRL,
+                               levels = design)
+
+contr.matrix
+
+# gene exp matrices
+cuff_annotation_data<-featureNames(cuff@isoforms)
+head(cuff_annotation_data)
+g.rep.matrix<-repFpkmMatrix(cummeRbund::genes(cuff))
+g.cnt.matrix<-repCountMatrix(cummeRbund::genes(cuff))
+# factors for conditions
+under.group<-grep(pattern=under, colnames(g.cnt.matrix))
+over.group<-grep(pattern=over, colnames(g.cnt.matrix))
+
+# Library Sizes
+notscaled.lib<-colSums( g.cnt.matrix ) 
+summary(notscaled.lib)
+lib.mil<-colSums( g.cnt.matrix ) / 1e06 
+summary(lib.mil)
+
+# Library Sizes in millions of reads
+scaled.lib<-data.frame(libsize=colSums((g.cnt.matrix ) / 1e06 ),
+                       condition=replicates.info$sample_name,
+                       samples=replicates.info$rep_name,
+                       lib.size=colSums( g.cnt.matrix),
+                       lib.size.mil=c(colSums( g.cnt.matrix ) / 1e06 ))
+
+ggplot(data = scaled.lib, group=condition, mapping= aes(x=samples,y=libsize,fill=condition), color=libsize) + 
+  geom_bar(show.legend=T,stat="identity")+
+   ggtitle("Library Size per Sample in Millions of Mapped Reads")
+
+```
+
+```{r tailors-sig-diff-exp}
+# gene expr data with all annotated features
+genes_exp.df<-diffData(cummeRbund::genes(cuff))
+head(genes_exp.df);dim(genes_exp.df)
+sig_genes_exp.df<-subset(genes_exp.df, significant=="yes") 
+sig_genes.df<-subset(genes_exp.df, gene_exp.df$significant=="yes")
+
+# Sig-geneFPKMexpression-matrix
+mySigGenes<-getSig(cuff,x=over,y=under,alpha=.05,level='genes')
+head(mySigGenes);length(mySigGenes)
+sigGenes<-cummeRbund::getGenes(cuff, mySigGenes)
+sigGenes
+
+sig.genes_exp.diff<-as.data.frame(cbind(logFC=sig_genes_exp.diff$log2_fold_change,q_value=sig_genes_exp.diff$q_value),row.names=sig_genes_exp.diff$gene_id)
+head(sig.genes_exp.diff);dim(sig.genes_exp.diff)
+
+g.rep.ma<-g.rep.matrix[unique(row.names(g.rep.matrix)),]
+g.rep.ma<-as.matrix(g.rep.ma)
+head(g.rep.matrix[unique(row.names(g.rep.matrix)),])
+
+over.group<-grep(pattern = over, x = colnames(g.rep.ma),ignore.case = T)
+under.group<-grep(pattern = under, x = colnames(g.rep.ma),ignore.case = T)
+
+g.under.matrix<-g.rep.ma[,under.group]
+g.over.matrix<-g.rep.ma[,over.group]
+
+sig_over_gene_data<-subset(sig_genes_exp.diff, (log2_fold_change > 0) & (significant =='yes'))
+head(sig_over_gene_data);dim(sig_over_gene_data)
+
+sig_under_gene_data<-subset(sig_genes_exp.diff, (log2_fold_change < 0) & (significant =='yes'))
+head(sig_under_gene_data);dim(sig_under_gene_data)
+
+sig.genes<-row.names(g.rep.matrix) %in% sig_genes_exp.diff$gene_id
+head(g.rep.matrix[sig.genes,]);dim(g.rep.matrix[sig.genes,])
+s.g.rep.matrix<-g.rep.ma[sig.genes,]
+
+g.under.genes<-row.names(g.rep.ma) %in% sig_under_gene_data$gene_id
+g.u.rep.ma<-g.rep.ma[g.under.genes,]
+head(g.u.rep.ma);dim(g.u.rep.ma)
+g.over.genes<-row.names(g.rep.ma) %in% sig_over_gene_data$gene_id
+g.o.rep.ma<-g.rep.ma[g.over.genes,]
+head(g.o.rep.ma);dim(g.o.rep.ma)
+
+s.g.over.matrix<-g.o.rep.ma[,over.group]
+head(s.g.over.matrix);dim(s.g.over.matrix)
+
+s.g.under.matrix<-g.u.rep.ma[,under.group]
+head(s.g.under.matrix);dim(s.g.under.matrix)
+
+```
+
+```{r bionet-w-cuffdiff}
+
+###############################################
+diff_genes.df<-diffData(cummeRbund::genes(cuff))
+sig_genes<-subset(diff_genes.df,significant == "yes")
+str(sig_genes); str(diff_genes.df)
+
+#all_gene.df<-diffTable(cummeRbund::genes(cuff))
+pvals <- data.frame(cbind(t=diff_genes.df$p_value, s=diff_genes.df$q_value))
+rownames(pvals) <- diff_genes.df$gene_id
+str(pvals)
+pvals$description <- select(org.Hs.eg.db, keys=rownames(pvals),
+                 column="GENENAME", keytype="SYMBOL",
+                 multiVals="first")
+pvals$entrezid <- select(org.Hs.eg.db,keys=diff_genes.df$gene_id,columns=c("ENTREZID","GENENAME"),keytype="SYMBOL")
+
+annots <- mapIds(org.Hs.eg.db, keys=diff_genes.df$gene_id,
+                 column="GENENAME", keytype="SYMBOL",
+                 multiVals="first")
+
+diff_genes.df$annots <- select(org.Hs.eg.db,keys=diff_genes.df$gene_id,columns=c("ENTREZID","GENENAME"),keytype="SYMBOL")
+
+pvals.df <- pvals %>%
+     mutate(label=paste0(SYMBOL,"(",ENTREZID,")" )) %>%)
+
+diff_genes.df$ENTREZID <- select(org.Hs.eg.db,keys=diff_genes.df$gene_id,column="ENTREZID",keytype="SYMBOL")
+
+annots.df <- diff_genes.df %>%
+   mutate(description=select(org.Hs.eg.db,keys=diff_genes.df$gene_id,columns=c("ENTREZID","GENENAME"),keytype="SYMBOL") %>%
+   mutate(label=paste0(SYMBOL,"(",ENTREZID,")" )) %>%)
+
+str(annots.df)
+rpals<-pvals %in% annots
+
+
+rownames(pvals) <- annots.df$label
+
+pval <- aggrPvals(pvals, order=2, plot=FALSE)
+head(pvals)
+subnet <- subNetwork(diff_genes.df$gene_id, interactome)
+subnet <- rmSelfLoops(subnet)
+###################################################
+gene_subnet<-subNetwork(all_gene.df$gene_name, interactome)
+gene_subN<-rmSelfLoops(gene_subnet)
+gene_subN
+
+###################################################
+### code chunk number 5: Tutorial.Rnw:79-81
+###################################################
+fb <- fitBumModel(pval, plot=FALSE)
+scores <- scoreNodes(subnet, fb, fdr=0.001)
+module <- runFastHeinz(subnet, scores)
+logFC <- all_gene.df$LUTS_CTRL_log2_fold_change
+names(logFC) <- all_gene.df$gene_name
+plotModule(module, scores=scores, diff.expr=logFC)
+```
+
+```{r bionet-toy}
+###################################################
+### code chunk number 8: Tutorial.Rnw:154-158
+###################################################
+library(BioNet)
+library(DLBCL)
+data(exprLym)
+names(interactome@nodes)
+exprLym
+featureNames(all_gene.df)
+as.list(grep(all_gene.df$gene_name %in% interactome@nodes)) #, invert=T)
+network <- subNetwork(featureNames(exprLym), interactome)
+network
+
+network <- subNetwork(all_gene.df, interactome)
+network
+
+###################################################
+### code chunk number 12: Tutorial.Rnw:188-190
+###################################################
+network <- largestComp(network)
+network
+
+
+###################################################
+### code chunk number 13: Tutorial.Rnw:200-204
+###################################################
+library(genefilter)
+library(impute)
+expressions <- impute.knn(exprs(all_gene.df)) #$data
+t.test <- rowttests(expressions, fac=exprLym$Subgroup)
+
+expressions <- impute.knn((all_gene.df)) #$data
+t.test <- rowttests(expressions, fac=all_gene.df$Subgroup)
+
+###################################################
+### code chunk number 14: Tutorial.Rnw:207-208
+###################################################
+t.test[1:10, ]
+
+
+###################################################
+### code chunk number 15: Tutorial.Rnw:215-218
+###################################################
+library(xtable)
+top.table <- xtable(t.test[1:10,], display=c("s", "f", "f", "f"))
+print(top.table, floating=FALSE)
+
+
+###################################################
+### code chunk number 16: Tutorial.Rnw:228-233
+###################################################
+data(dataLym)
+ttest.pval <- t.test[, "p.value"]
+surv.pval <- dataLym$s.pval
+names(surv.pval) <- dataLym$label
+pvals <- cbind(ttest.pval, surv.pval)
+
+
+###################################################
+### code chunk number 17: Tutorial.Rnw:242-243
+###################################################
+pval <- aggrPvals(pvals, order=2, plot=FALSE)
+
+
+###################################################
+### code chunk number 18: Tutorial.Rnw:250-252
+###################################################
+fb <- fitBumModel(pval, plot=FALSE)
+fb
+
+
+###################################################
+### code chunk number 19: Tutorial.Rnw:255-260
+###################################################
+dev.new(width=13, height=7)
+par(mfrow=c(1,2))
+hist(fb)
+plot(fb)
+dev.off()
+
+
+###################################################
+### code chunk number 20: Tutorial.Rnw:275-276
+###################################################
+plotLLSurface(pval, fb)
+
+
+###################################################
+### code chunk number 21: Tutorial.Rnw:285-286
+###################################################
+scores <- scoreNodes(network=network, fb=fb, fdr=0.001)
+
+
+###################################################
+### code chunk number 22: Tutorial.Rnw:293-296
+###################################################
+network <- rmSelfLoops(network)
+writeHeinzEdges(network=network, file="lymphoma_edges_001", use.score=FALSE)
+writeHeinzNodes(network=network, file="lymphoma_nodes_001", node.scores = scores)
+
+
+###################################################
+### code chunk number 23: Tutorial.Rnw:313-315
+###################################################
+datadir <- file.path(path.package("BioNet"), "extdata")
+dir(datadir)
+
+
+###################################################
+### code chunk number 24: Tutorial.Rnw:321-324
+###################################################
+module <- readHeinzGraph(node.file=file.path(datadir, "lymphoma_nodes_001.txt.0.hnz"), network=network)
+diff <- t.test[, "dm"]
+names(diff) <- rownames(t.test)
+
+
+###################################################
+### code chunk number 25: Tutorial.Rnw:327-328
+###################################################
+plotModule(module, diff.expr=diff, scores=scores)
+
+
+###################################################
+### code chunk number 26: Tutorial.Rnw:350-353
+###################################################
+sum(scores[nodes(module)])
+sum(scores[nodes(module)]>0)
+sum(scores[nodes(module)]<0)
+
+###################################################
+### code chunk number 29: Tutorial.Rnw:396-397
+###################################################
+interactome
+
+ALL
+
+###################################################
+### code chunk number 30: Tutorial.Rnw:407-409
+###################################################
+mapped.eset <- mapByVar(ALL, network=interactome, attr="geneID")
+mapped.eset[1:5,1:5]
+length(intersect(rownames(mapped.eset), nodes(interactome)))
+
+network <- subNetwork(rownames(mapped.eset), interactome)
+network
+network <- largestComp(network)
+network <- rmSelfLoops(network)
+network
+
+
+###################################################
+### code chunk number 33: Tutorial.Rnw:441-449
+###################################################
+library(limma)
+design <- model.matrix(~ -1+ factor(c(substr(unlist(ALL$BT), 0, 1))))
+colnames(design)<- c("B", "T")
+contrast.matrix <- makeContrasts(B-T, levels=design)
+contrast.matrix
+fit <- lmFit(mapped.eset, design)
+fit2 <- contrasts.fit(fit, contrast.matrix)
+fit2 <- eBayes(fit2)
+pval <- fit2$p.value[,1]
+fb <- fitBumModel(pval, plot=FALSE)
+fb
+
+dev.new(width=13, height=7)
+par(mfrow=c(1,2))
+hist(fb)
+plot(fb)
+
+
+###################################################
+### code chunk number 37: Tutorial.Rnw:487-488
+###################################################
+scores <- scoreNodes(network=network, fb=fb, fdr=1e-14)
+writeHeinzEdges(network=network, file="ALL_edges_001", use.score=FALSE)
+writeHeinzNodes(network=network, file="ALL_nodes_001", node.scores = scores)
+datadir <- file.path(path.package("BioNet"), "extdata")
+module <- readHeinzGraph(node.file=file.path(datadir, "ALL_nodes_001.txt.0.hnz"), network=network)
+nodeDataDefaults(module, attr="diff") <- ""
+nodeData(module, n=nodes(module), attr="diff") <- fit2$coefficients[nodes(module),1]
+nodeDataDefaults(module, attr="score") <- ""
+nodeData(module, n=nodes(module), attr="score") <- scores[nodes(module)]
+nodeData(module)[1]
+saveNetwork(module, file="ALL_module", type="XGMML")
+
+###################################################
+### code chunk number 42: Tutorial.Rnw:568-576 (eval = FALSE)
+###################################################
+## j.repl <- 100
+## resampling.pvals <- list()
+## for(i in 1:j.repl)
+## {
+##   resampling.result <- resamplingPvalues(exprMat=mapped.eset, groups=factor(c(substr(unlist(ALL$BT), 0, 1))), resampleMat=FALSE, alternative="two.sided")
+##   resampling.pvals[[i]] <- resampling.result$p.values
+##   print(i)
+## }
+
+
+###################################################
+### code chunk number 43: Tutorial.Rnw:585-591 (eval = FALSE)
+###################################################
+## fb <- lapply(resampling.pvals, fitBumModel, plot=FALSE, starts=1)
+## resampling.scores <- c()
+## for(i in 1:j.repl)
+## {
+##   resampling.scores[[i]] <- scoreNodes(network=network, fb=fb[[i]], fdr=1e-14)
+## }
+
+
+###################################################
+### code chunk number 44: Tutorial.Rnw:596-598 (eval = FALSE)
+###################################################
+## score.mat <- as.data.frame(resampling.scores)
+## colnames(score.mat) <- paste("resample", (1:j.repl), sep="")
+
+
+###################################################
+### code chunk number 45: Tutorial.Rnw:603-605 (eval = FALSE)
+###################################################
+## writeHeinzEdges(network=network, file="ALL_e_resample", use.score=FALSE)
+## writeHeinzNodes(network=network, file="ALL_n_resample", node.scores = score.mat)
+
+
+###################################################
+### code chunk number 46: Tutorial.Rnw:618-620
+###################################################
+datadir <- file.path(path.package("BioNet"), "extdata")
+modules <- readHeinzGraph(node.file=file.path(datadir, "ALL_n_resample.txt.0.hnz"), network=network)
+cons.scores <- consensusScores(modules, network)
+writeHeinz(network=network, file="ALL_cons", node.scores=cons.scores$N.scores, edge.scores=cons.scores$E.scores)
+datadir <- file.path(path.package("BioNet"), "extdata")
+cons.module <- readHeinzGraph(node.file=file.path(datadir, "ALL_cons_n.txt.0.hnz"), network=network)
+cons.edges <- sortedEdgeList(cons.module)
+E.width <- 1+cons.scores$E.freq[cons.edges]*10
+N.size <- 1+cons.scores$N.freq[nodes(cons.module)]*10
+plotModule(cons.module, edge.width=E.width, vertex.size=N.size, edge.label=cons.scores$E.freq[cons.edges]*100, edge.label.cex=0.6)
+
+
+
+
+```
+
+```{r}
+
+columns(org.Hs.eg.db)
+
+res$symbol = mapIds(org.Hs.eg.db,
+                     keys=row.names(res), 
+                     column="SYMBOL",
+                     keytype="ENSEMBL",
+                     multiVals="first")
+res$entrez = mapIds(org.Hs.eg.db,
+                     keys=row.names(res), 
+                     column="ENTREZID",
+                     keytype="ENSEMBL",
+                     multiVals="first")
+res$name =   mapIds(org.Hs.eg.db,
+                     keys=row.names(res), 
+                     column="GENENAME",
+                     keytype="ENSEMBL",
+                     multiVals="first")
+
+head(res, 10)
+
+ids <- bitr(x, fromType="SYMBOL", toType=c("UNIPROT", "ENSEMBL"), OrgDb="org.Hs.eg.db")
+head(ids)
+
+
+kg.hsa=kegg.gsets("hsa")
+kegg.gs=kg.hsa$kg.sets[kg.hsa$sigmet.idx]
+#save(kegg.gs, file="kegg.hsa.sigmet.gsets.RData")
+#kegg.gsets works with 3000 KEGG species,for examples:
+
+head(korg[,1:3])
+# Generate a mapping between the HGNC symbols in the SIF to the Uniprot IDs
+ensembl <- useMart("ensembl")
+ensembl <- useDataset("hsapiens_gene_ensembl", mart = ensembl)
+
+hgnc_symbol <- c(sif$PARTICIPANT_A, sif$PARTICIPANT_B)
+output <- getBM(attributes = c("hgnc_symbol", "uniprot_sptrembl"), filters = "hgnc_symbol", 
+    values = hgnc_symbol, mart = ensembl)
+
+
+# Each element of the msigdf list named "Org.Collection" is a data frame
+# containing the name of the geneset and the entrez id of genes in that set.
+msigdf <- list()
+for (i in ls(pattern="^Hs\\.|^Mm\\.")) {
+  message(i)
+  msigdf[[i]] <- eval(parse(text=i)) %>%
+    ldply(function(x) data_frame(entrez=x), .id="geneset") %>%
+    filter(entrez!="-") %>%
+    mutate(entrez=as.integer(entrez), geneset=as.character(geneset)) %>%
+    tbl_df()
+}; rm(i)
+# Collapse that list into a large data.frame tbl, then recode the org column to
+# spell out human/mouse, and sub "hallmark" for "H".
+msigdf <- msigdf %>%
+  bind_rows(.id="x") %>%
+  separate(x, into=c("org", "collection")) %>%
+  mutate(org=recode(org, Hs="human", Mm="mouse")) %>%
+  mutate(collection=gsub("H", "hallmark", collection))
+msigdf
+
+# Create human-only and mouse-only subsets
+msigdf.human <- msigdf %>% filter(org=="human") %>% select(-org)
+msigdf.mouse <- msigdf %>% filter(org=="mouse") %>% select(-org)
+
+# Create data frame of urls to join to
+msigdf.urls <- msigdf %>%
+  distinct(collection, geneset) %>%
+  mutate(url=paste0("http://software.broadinstitute.org/gsea/msigdb/cards/", geneset))
+
+# Save data in the package, and remove the original list objects
+devtools::use_data(msigdf.human, msigdf.mouse, msigdf.urls, overwrite=TRUE, compress='xz')
+devtools::use_package("tibble")
+rm(list=ls(pattern="^Hs\\.|^Mm\\."))
+rm(msigdf)
+```
+
+
+```{r gaggle}
+library(gaggle)
+gaggleInit ()
+setSpecies ('Homo sapiens')
+g = randomEGraph (LETTERS [1:8], edges=10)
+broadcast (g)
+selectedNodes = getNameList ()
+subgraph = getNetwork ()
+broadcast (c ('B', 'E'))
+
+###################################################
+#code chunk number 3: preparepriors
+###################################################
+RAS-related genes
+genes.ras <- colnames(data.ras)
+
+read priors generated by the Predictive Networks web application
+pn.priors <- read.csv(system.file(file.path("extdata", "priors_ras_bild2006_pnwebapp.csv"), package="predictionet"), stringsAsFactors=FALSE)
+the column names should be: subject, predicate, object, direction, evidence, sentence, article, network
+
+remove special characters in the gene symbols
+pn.priors[ ,"subject"] <- gsub(pattern="[-]|[+]|[*]|[%]|[$]|[#]|[{]|[}]|[[]|[]]|[|]|[\\^]", replacement=".", x=pn.priors[ ,"subject"])
+pn.priors[ ,"object"] <- gsub(pattern="[-]|[+]|[*]|[%]|[$]|[#]|[{]|[}]|[[]|[]]|[|]|[\\^]", replacement=".", x=pn.priors[ ,"object"])
+genes.ras <- gsub(pattern="[-]|[+]|[*]|[%]|[$]|[#]|[{]|[}]|[[]|[]]|[|]|[\\^]", replacement=".", x=genes.ras)
+
+missing values
+pn.priors[!is.na(pn.priors) & (pn.priors == "" | pn.priors == " " | pn.priors == "N/A")] <- NA
+
+select only the interactions in which the genes are comprised in our gene expression dataset
+myx <- is.element(pn.priors[ , "subject"], genes.ras) & is.element(pn.priors[ , "object"], genes.ras)
+pn.priors <- pn.priors[myx, , drop=FALSE]
+
+
+###################################################
+#code chunk number 4: priorsrandom
+###################################################
+pn.priors <- pn.priors[sample(1:nrow(pn.priors)), ]
+
+
+###################################################
+#code chunk number 5: tablepriors
+###################################################
+print(head(pn.priors))
+
+
+###################################################
+#code chunk number 6: preparepriorscount
+###################################################
+build prior counts
+pn.priors.counts <- matrix(0, nrow=length(genes.ras), ncol=length(genes.ras), dimnames=list(genes.ras, genes.ras))
+
+for(i in 1:nrow(pn.priors)) {
+	switch(tolower(pn.priors[i, "direction"]), 
+	"right"={ pn.priors.counts[pn.priors[i, "subject"], pn.priors[i, "object"]] <- pn.priors.counts[pn.priors[i, "subject"], pn.priors[i, "object"]] + ifelse(!is.na(pn.priors[i, "evidence"]), ifelse(tolower(pn.priors[i, "evidence"]) == "positive", +1, -1), 0) }, 
+	"left"={ pn.priors.counts[pn.priors[i, "object"], pn.priors[i, "subject"]] <- pn.priors.counts[pn.priors[i, "object"], pn.priors[i, "subject"]] +  ifelse(!is.na(pn.priors[i, "evidence"]), ifelse(tolower(pn.priors[i, "evidence"]) == "positive", +1, -1), 0) }, 
+	{ pn.priors.counts[pn.priors[i, "subject"], pn.priors[i, "object"]] <- pn.priors.counts[pn.priors[i, "subject"], pn.priors[i, "object"]] +  ifelse(!is.na(pn.priors[i, "evidence"]), ifelse(tolower(pn.priors[i, "evidence"]) == "positive", +1, -1), 0)
+	if(pn.priors[i, "object"] != pn.priors[i, "subject"]) { pn.priors.counts[pn.priors[i, "object"], pn.priors[i, "subject"]] <- pn.priors.counts[pn.priors[i, "object"], pn.priors[i, "subject"]] +  ifelse(!is.na(pn.priors[i, "evidence"]), ifelse(tolower(pn.priors[i, "evidence"]) == "positive", +1, -1), 0) } })
+}
+#
+print(table(pn.priors.counts))
+
+
+###################################################
+#code chunk number 8: foopredictionet (eval = FALSE)
+###################################################
+library(help=predictionet)
+
+
+###################################################
+#code chunk number 9: loadpredictionet (eval = FALSE)
+###################################################
+help(expO.colon.ras)
+help(jorissen.colon.ras)
+
+
+###################################################
+#code chunk number 10: helpnetinf (eval = FALSE)
+###################################################
+help(netinf)
+
+
+###################################################
+#code chunk number 11: firstnetinf
+###################################################
+number of genes to select for the analysis
+genen <- 30
+select only the top genes
+goi <- dimnames(annot.ras)[[1]][order(abs(log2(annot.ras[ ,"fold.change"])), decreasing=TRUE)[1:genen]]
+
+
+###################################################
+#code chunk number 12: firstnetinf
+###################################################
+mynet <- netinf(data=data.ras[ ,goi], priors=pn.priors.counts[goi,goi], priors.count=TRUE, priors.weight=0.5, maxparents=4, method="regrnet", seed=54321)
+
+
+###################################################
+#code chunk number 13: regrnetopofig
+###################################################
+network topology
+mytopoglobal <- mynet$topology
+library(network)
+xnet <- network(x=mytopoglobal, matrix.type="adjacency", directed=TRUE, loops=FALSE, vertex.attrnames=dimnames(mytopoglobal)[[1]])
+mynetlayout <- plot.network(x=xnet, displayisolates=TRUE, displaylabels=TRUE, boxed.labels=FALSE, label.pos=0, arrowhead.cex=1.5, vertex.cex=2, vertex.col="royalblue", jitter=FALSE, pad=0.6)
+
+
+###################################################
+#code chunk number 14: edgecoldiff
+###################################################
+preparing colors
+mycols <- c("blue", "green", "red")
+names(mycols) <- c("prior", "data", "both")
+myedgecols <- matrix("white", nrow=nrow(mytopoglobal), ncol=ncol(mytopoglobal), dimnames=dimnames(mytopoglobal))
+prior only
+myedgecols[mytopoglobal == 0 & pn.priors.counts[goi,goi] >= 1] <- mycols["prior"]
+data only
+myedgecols[mytopoglobal == 1 & pn.priors.counts[goi,goi] < 1] <- mycols["data"]
+both in priors and data
+myedgecols[mytopoglobal == 1 & pn.priors.counts[goi,goi] >= 1] <- mycols["both"]
+
+
+###################################################
+#code chunk number 15: edgecoldiffig
+###################################################
+mytopoglobal2 <- (myedgecols != "white") + 0
+network topology
+xnet2 <- network(x=mytopoglobal2, matrix.type="adjacency", directed=TRUE, loops=TRUE, vertex.attrnames=dimnames(mytopoglobal2)[[1]])
+plot.network(x=xnet2, displayisolates=TRUE, displaylabels=TRUE, boxed.labels=FALSE, label.pos=0, arrowhead.cex=1.5, vertex.cex=2, vertex.col="royalblue", jitter=FALSE, pad=0.5, edge.col=myedgecols, coord=mynetlayout)
+
+
+###################################################
+#code chunk number 16: regrnetinfcv
+###################################################
+myres.cv <- netinf.cv(data=data.ras[ ,goi], categories=3, priors=pn.priors.counts[goi,goi], maxparents=4, priors.weight=0.5, method="regrnet", nfold=10, seed=54321)
+
+
+###################################################
+#code chunk number 17: rescv
+###################################################
+print(str(myres.cv, 1))
+
+
+###################################################
+#code chunk number 18: edgecol
+###################################################
+preparing colors
+ii <- 0:10
+mycols <- c("#BEBEBE", rev(rainbow(10, v=0.8, alpha=0.5)))
+names(mycols) <- as.character(ii/10)
+myedgecols <- matrix("#00000000", nrow=nrow(mytopoglobal), ncol=ncol(mytopoglobal), dimnames=dimnames(mytopoglobal))
+for(k in 1:length(mycols)) { myedgecols[myres.cv$edge.stability == names(mycols)[k]] <- mycols[k] }
+myedgecols[!mytopoglobal] <- "#00000000"
+
+
+###################################################
+#code chunk number 19: edgestabfig0 (eval = FALSE)
+###################################################
+def.par <- par(no.readonly=TRUE)
+layout(rbind(1,2), heights=rbind(8,1))
+par(mar=c(1,1,1,1))
+network topology
+xnet3 <- network(x=mytopoglobal, matrix.type="adjacency", directed=TRUE, loops=FALSE, vertex.attrnames=dimnames(mytopoglobal)[[1]])
+plot.network(x=xnet3, displayisolates=TRUE, displaylabels=TRUE, boxed.labels=FALSE, label.pos=0, arrowhead.cex=1.5, vertex.cex=2, vertex.col="royalblue", jitter=FALSE, pad=0.5, edge.col=myedgecols, coord=mynetlayout)
+par(mar=c(0,3,1,3))
+plot(ii+1, ii+10/6+1, bty="n", type="n", yaxt="n", xaxt="n", ylab="", xlab ="", main="Stability scale", cex.main=1)
+rect(xleft=ii+0.5, ybottom=3, xright=ii+1.4, ytop=10+3, col=mycols, border="grey")
+text(ii+1, y=2.4, labels=names(mycols), pos=3, cex=1)
+par(def.par)
+
+
+###################################################
+#code chunk number 20: edgestabfig
+###################################################
+def.par <- par(no.readonly=TRUE)
+layout(rbind(1,2), heights=rbind(8,1))
+par(mar=c(1,1,1,1))
+network topology
+xnet3 <- network(x=mytopoglobal, matrix.type="adjacency", directed=TRUE, loops=FALSE, vertex.attrnames=dimnames(mytopoglobal)[[1]])
+plot.network(x=xnet3, displayisolates=TRUE, displaylabels=TRUE, boxed.labels=FALSE, label.pos=0, arrowhead.cex=1.5, vertex.cex=2, vertex.col="royalblue", jitter=FALSE, pad=0.5, edge.col=myedgecols, coord=mynetlayout)
+par(mar=c(0,3,1,3))
+plot(ii+1, ii+10/6+1, bty="n", type="n", yaxt="n", xaxt="n", ylab="", xlab ="", main="Stability scale", cex.main=1)
+rect(xleft=ii+0.5, ybottom=3, xright=ii+1.4, ytop=10+3, col=mycols, border="grey")
+text(ii+1, y=2.4, labels=names(mycols), pos=3, cex=1)
+par(def.par)
+
+
+###################################################
+#code chunk number 21: genecolr2
+###################################################
+myr2 <- apply(myres.cv$prediction.score.cv$r2, 2, mean, na.rm=TRUE)
+myr2 <- round(myr2*10)/10
+preparing colors
+ii <- 0:10
+mycols <- c("#BEBEBE", rev(rainbow(10, v=0.8, alpha=0.5)))
+names(mycols) <- as.character(ii/10)
+myvertexcols <- mycols[match(myr2, names(mycols))]
+names(myvertexcols) <- names(myr2)
+
+
+###################################################
+#code chunk number 22: genepredabr2fig0 (eval = FALSE)
+###################################################
+def.par <- par(no.readonly=TRUE)
+layout(rbind(1,2), heights=rbind(8,1))
+par(mar=c(1,1,1,1))
+network topology
+xnet3 <- network(x=mytopoglobal, matrix.type="adjacency", directed=TRUE, loops=FALSE, vertex.attrnames=dimnames(mytopoglobal)[[1]])
+plot.network(x=xnet3, displayisolates=TRUE, displaylabels=TRUE, boxed.labels=FALSE, label.pos=0, arrowhead.cex=1.5, vertex.cex=2, vertex.col=myvertexcols, jitter=FALSE, pad=0.5, edge.col="black", coord=mynetlayout)
+par(mar=c(0,3,1,3))
+plot(ii+1, ii+10/6+1, bty="n", type="n", yaxt="n", xaxt="n", ylab="", xlab ="", main="$R^2$", cex.main=1)
+rect(xleft=ii+0.5, ybottom=3, xright=ii+1.4, ytop=10+3, col=mycols, border="grey")
+text(ii+1, y=2.4, labels=names(mycols), pos=3, cex=1)
+par(def.par)
+
+
+###################################################
+#code chunk number 23: genepredabr2fig
+###################################################
+def.par <- par(no.readonly=TRUE)
+layout(rbind(1,2), heights=rbind(8,1))
+par(mar=c(1,1,1,1))
+network topology
+xnet3 <- network(x=mytopoglobal, matrix.type="adjacency", directed=TRUE, loops=FALSE, vertex.attrnames=dimnames(mytopoglobal)[[1]])
+plot.network(x=xnet3, displayisolates=TRUE, displaylabels=TRUE, boxed.labels=FALSE, label.pos=0, arrowhead.cex=1.5, vertex.cex=2, vertex.col=myvertexcols, jitter=FALSE, pad=0.5, edge.col="black", coord=mynetlayout)
+par(mar=c(0,3,1,3))
+plot(ii+1, ii+10/6+1, bty="n", type="n", yaxt="n", xaxt="n", ylab="", xlab ="", main="$R^2$", cex.main=1)
+rect(xleft=ii+0.5, ybottom=3, xright=ii+1.4, ytop=10+3, col=mycols, border="grey")
+text(ii+1, y=2.4, labels=names(mycols), pos=3, cex=1)
+par(def.par)
+
+
+###################################################
+#code chunk number 24: genecolmcc
+###################################################
+mymcc <- apply(myres.cv$prediction.score.cv$mcc, 2, mean, na.rm=TRUE)
+mymcc <- round(mymcc*20)/20
+mymcc[mymcc < 0.5] <- 0.5
+preparing colors
+ii <- 0:10
+mycols <- c("#BEBEBE", rev(rainbow(10, v=0.8, alpha=0.5)))
+names(mycols) <- seq(0.5, 1, 0.05)
+myvertexcols <- mycols[match(mymcc, names(mycols))]
+names(myvertexcols) <- names(mymcc)
+
+
+###################################################
+#code chunk number 25: genepredabmccfig0 (eval = FALSE)
+###################################################
+def.par <- par(no.readonly=TRUE)
+layout(rbind(1,2), heights=rbind(8,1))
+par(mar=c(1,1,1,1))
+network topology
+xnet3 <- network(x=mytopoglobal, matrix.type="adjacency", directed=TRUE, loops=FALSE, vertex.attrnames=dimnames(mytopoglobal)[[1]])
+plot.network(x=xnet3, displayisolates=TRUE, displaylabels=TRUE, boxed.labels=FALSE, label.pos=0, arrowhead.cex=1.5, vertex.cex=2, vertex.col=myvertexcols, jitter=FALSE, pad=0.5, edge.col="black", coord=mynetlayout)
+par(mar=c(0,3,1,3))
+plot(ii+1, ii+10/6+1, bty="n", type="n", yaxt="n", xaxt="n", ylab="", xlab ="", main="$MCC$", cex.main=1)
+rect(xleft=ii+0.5, ybottom=3, xright=ii+1.4, ytop=10+3, col=mycols, border="grey")
+text(ii+1, y=2.4, labels=names(mycols), pos=3, cex=1)
+par(def.par)
+
+
+###################################################
+#code chunk number 26: genepredabmccfig
+###################################################
+def.par <- par(no.readonly=TRUE)
+layout(rbind(1,2), heights=rbind(8,1))
+par(mar=c(1,1,1,1))
+network topology
+xnet3 <- network(x=mytopoglobal, matrix.type="adjacency", directed=TRUE, loops=FALSE, vertex.attrnames=dimnames(mytopoglobal)[[1]])
+plot.network(x=xnet3, displayisolates=TRUE, displaylabels=TRUE, boxed.labels=FALSE, label.pos=0, arrowhead.cex=1.5, vertex.cex=2, vertex.col=myvertexcols, jitter=FALSE, pad=0.5, edge.col="black", coord=mynetlayout)
+par(mar=c(0,3,1,3))
+plot(ii+1, ii+10/6+1, bty="n", type="n", yaxt="n", xaxt="n", ylab="", xlab ="", main="$MCC$", cex.main=1)
+rect(xleft=ii+0.5, ybottom=3, xright=ii+1.4, ytop=10+3, col=mycols, border="grey")
+text(ii+1, y=2.4, labels=names(mycols), pos=3, cex=1)
+par(def.par)
+
+
+###################################################
+#code chunk number 27: validationpred
+###################################################
+make the network model predictive
+mynet <- net2pred(net=mynet, data=data.ras[ ,goi], method="linear")
+compute predictions
+mynet.test.pred <- netinf.predict(net=mynet, data=data2.ras[ ,goi])
+performance estimation: R2
+mynet.test.r2 <- pred.score(data=data2.ras[ ,goi], pred=mynet.test.pred, method="r2")
+performance estimation: MCC
+mynet.test.mcc <- pred.score(data=data2.ras[ ,goi], categories=3, pred=mynet.test.pred, method="mcc")
+
+
+###################################################
+#code chunk number 28: genecolr2test
+###################################################
+mynet.test.r2 <- round(mynet.test.r2*10)/10
+preparing colors
+ii <- 0:10
+mycols <- c("#BEBEBE", rev(rainbow(10, v=0.8, alpha=0.5)))
+names(mycols) <- as.character(ii/10)
+myvertexcols <- mycols[match(mynet.test.r2, names(mycols))]
+names(myvertexcols) <- names(mynet.test.r2)
+
+
+###################################################
+#code chunk number 29: genepredabr2testfig0 (eval = FALSE)
+###################################################
+def.par <- par(no.readonly=TRUE)
+layout(rbind(1,2), heights=rbind(8,1))
+par(mar=c(1,1,1,1))
+network topology
+xnet3 <- network(x=mytopoglobal, matrix.type="adjacency", directed=TRUE, loops=FALSE, vertex.attrnames=dimnames(mytopoglobal)[[1]])
+plot.network(x=xnet3, displayisolates=TRUE, displaylabels=TRUE, boxed.labels=FALSE, label.pos=0, arrowhead.cex=1.5, vertex.cex=2, vertex.col=myvertexcols, jitter=FALSE, pad=0.5, edge.col="black", coord=mynetlayout)
+par(mar=c(0,3,1,3))
+plot(ii+1, ii+10/6+1, bty="n", type="n", yaxt="n", xaxt="n", ylab="", xlab ="", main="$R^2$", cex.main=1)
+rect(xleft=ii+0.5, ybottom=3, xright=ii+1.4, ytop=10+3, col=mycols, border="grey")
+text(ii+1, y=2.4, labels=names(mycols), pos=3, cex=1)
+par(def.par)
+
+
+###################################################
+#code chunk number 30: genepredabr2testfig
+###################################################
+def.par <- par(no.readonly=TRUE)
+layout(rbind(1,2), heights=rbind(8,1))
+par(mar=c(1,1,1,1))
+network topology
+xnet3 <- network(x=mytopoglobal, matrix.type="adjacency", directed=TRUE, loops=FALSE, vertex.attrnames=dimnames(mytopoglobal)[[1]])
+plot.network(x=xnet3, displayisolates=TRUE, displaylabels=TRUE, boxed.labels=FALSE, label.pos=0, arrowhead.cex=1.5, vertex.cex=2, vertex.col=myvertexcols, jitter=FALSE, pad=0.5, edge.col="black", coord=mynetlayout)
+par(mar=c(0,3,1,3))
+plot(ii+1, ii+10/6+1, bty="n", type="n", yaxt="n", xaxt="n", ylab="", xlab ="", main="$R^2$", cex.main=1)
+rect(xleft=ii+0.5, ybottom=3, xright=ii+1.4, ytop=10+3, col=mycols, border="grey")
+text(ii+1, y=2.4, labels=names(mycols), pos=3, cex=1)
+par(def.par)
+
+
+###################################################
+#code chunk number 31: genecolmcctest
+###################################################
+mynet.test.mcc <- round(mynet.test.mcc*20)/20
+mynet.test.mcc[mynet.test.mcc < 0.5] <- 0.5
+preparing colors
+ii <- 0:10
+mycols <- c("#BEBEBE", rev(rainbow(10, v=0.8, alpha=0.5)))
+names(mycols) <- seq(0.5, 1, 0.05)
+myvertexcols <- mycols[match(mynet.test.mcc, names(mycols))]
+names(myvertexcols) <- names(mynet.test.mcc)
+
+
+###################################################
+#code chunk number 32: genepredabmcctestfig0 (eval = FALSE)
+###################################################
+def.par <- par(no.readonly=TRUE)
+layout(rbind(1,2), heights=rbind(8,1))
+par(mar=c(1,1,1,1))
+network topology
+xnet3 <- network(x=mytopoglobal, matrix.type="adjacency", directed=TRUE, loops=FALSE, vertex.attrnames=dimnames(mytopoglobal)[[1]])
+plot.network(x=xnet3, displayisolates=TRUE, displaylabels=TRUE, boxed.labels=FALSE, label.pos=0, arrowhead.cex=1.5, vertex.cex=2, vertex.col=myvertexcols, jitter=FALSE, pad=0.5, edge.col="black", coord=mynetlayout)
+par(mar=c(0,3,1,3))
+plot(ii+1, ii+10/6+1, bty="n", type="n", yaxt="n", xaxt="n", ylab="", xlab ="", main="$MCC$", cex.main=1)
+rect(xleft=ii+0.5, ybottom=3, xright=ii+1.4, ytop=10+3, col=mycols, border="grey")
+text(ii+1, y=2.4, labels=names(mycols), pos=3, cex=1)
+par(def.par)
+
+
+###################################################
+#code chunk number 33: genepredabmcctestfig
+###################################################
+def.par <- par(no.readonly=TRUE)
+layout(rbind(1,2), heights=rbind(8,1))
+par(mar=c(1,1,1,1))
+network topology
+xnet3 <- network(x=mytopoglobal, matrix.type="adjacency", directed=TRUE, loops=FALSE, vertex.attrnames=dimnames(mytopoglobal)[[1]])
+plot.network(x=xnet3, displayisolates=TRUE, displaylabels=TRUE, boxed.labels=FALSE, label.pos=0, arrowhead.cex=1.5, vertex.cex=2, vertex.col=myvertexcols, jitter=FALSE, pad=0.5, edge.col="black", coord=mynetlayout)
+par(mar=c(0,3,1,3))
+plot(ii+1, ii+10/6+1, bty="n", type="n", yaxt="n", xaxt="n", ylab="", xlab ="", main="$MCC$", cex.main=1)
+rect(xleft=ii+0.5, ybottom=3, xright=ii+1.4, ytop=10+3, col=mycols, border="grey")
+text(ii+1, y=2.4, labels=names(mycols), pos=3, cex=1)
+par(def.par)
+
+
+###################################################
+#code chunk number 34: regnetcvexport (eval = FALSE)
+###################################################
+netinf2gml(object=myres.cv, file="regrnet_expO_cv")
+
+
+###################################################
+#code chunk number 35: regnetcvpriorsweight
+###################################################
+priors.weight 0
+myres.cv.pw0 <- netinf.cv(data=data.ras[ ,goi], categories=3, priors=pn.priors.counts[goi,goi], maxparents=4, priors.weight=0, method="regrnet", nfold=10, seed=54321)
+priors.weight 0.25
+myres.cv.pw025 <- netinf.cv(data=data.ras[ ,goi], categories=3, priors=pn.priors.counts[goi,goi], maxparents=4, priors.weight=0.25, method="regrnet", nfold=10, seed=54321)
+priors.weight 0.5
+myres.cv.pw050 <- myres.cv
+priors.weight 0.75
+myres.cv.pw075 <- netinf.cv(data=data.ras[ ,goi], categories=3, priors=pn.priors.counts[goi,goi], maxparents=4, priors.weight=0.75, method="regrnet", nfold=10, seed=54321)
+priors.weight 0
+myres.cv.pw1 <- netinf.cv(data=data.ras[ ,goi], categories=3, priors=pn.priors.counts[goi,goi], maxparents=4, priors.weight=1, method="regrnet", nfold=10, seed=54321)
+
+
+###################################################
+#code chunk number 36: regnetcvpriorsweightfig20 (eval = FALSE)
+###################################################
+def.par <- par(no.readonly=TRUE)
+layout(mat=matrix(1:4, nrow=2, ncol=2, byrow=TRUE))
+priors.weight 0
+mytopot <- myres.cv.pw0$topology
+xnett <- network(x=mytopot, matrix.type="adjacency", directed=TRUE, loops=FALSE, vertex.attrnames=dimnames(mytopot)[[1]])
+plot.network(x=xnett, displayisolates=TRUE, displaylabels=FALSE, boxed.labels=FALSE, label.pos=0, arrowhead.cex=1.5, vertex.cex=2, vertex.col="royalblue", jitter=FALSE, pad=0.5, edge.col="black", coord=mynetlayout, main="Priors weight = 0 (data only)")
+priors.weight 0.25
+mytopot <- myres.cv.pw025$topology
+xnett <- network(x=mytopot, matrix.type="adjacency", directed=TRUE, loops=FALSE, vertex.attrnames=dimnames(mytopot)[[1]])
+plot.network(x=xnett, displayisolates=TRUE, displaylabels=FALSE, boxed.labels=FALSE, label.pos=0, arrowhead.cex=1.5, vertex.cex=2, vertex.col="royalblue", jitter=FALSE, pad=0.5, edge.col="black", coord=mynetlayout, main="Priors weight = 0.25")
+priors.weight 0.75
+mytopot <- myres.cv.pw075$topology
+xnett <- network(x=mytopot, matrix.type="adjacency", directed=TRUE, loops=FALSE, vertex.attrnames=dimnames(mytopot)[[1]])
+plot.network(x=xnett, displayisolates=TRUE, displaylabels=FALSE, boxed.labels=FALSE, label.pos=0, arrowhead.cex=1.5, vertex.cex=2, vertex.col="royalblue", jitter=FALSE, pad=0.5, edge.col="black", coord=mynetlayout, main="Priors weight = 0.75")
+priors.weight 1
+mytopot <- myres.cv.pw1$topology
+xnett <- network(x=mytopot, matrix.type="adjacency", directed=TRUE, loops=FALSE, vertex.attrnames=dimnames(mytopot)[[1]])
+plot.network(x=xnett, displayisolates=TRUE, displaylabels=FALSE, boxed.labels=FALSE, label.pos=0, arrowhead.cex=1.5, vertex.cex=2, vertex.col="royalblue", jitter=FALSE, pad=0.5, edge.col="black", coord=mynetlayout, main="Priors weight = 1 (priors only)")
+par(def.par)
+
+
+###################################################
+#code chunk number 37: regnetcvpriorsweightfig2
+###################################################
+def.par <- par(no.readonly=TRUE)
+layout(mat=matrix(1:4, nrow=2, ncol=2, byrow=TRUE))
+priors.weight 0
+mytopot <- myres.cv.pw0$topology
+xnett <- network(x=mytopot, matrix.type="adjacency", directed=TRUE, loops=FALSE, vertex.attrnames=dimnames(mytopot)[[1]])
+plot.network(x=xnett, displayisolates=TRUE, displaylabels=FALSE, boxed.labels=FALSE, label.pos=0, arrowhead.cex=1.5, vertex.cex=2, vertex.col="royalblue", jitter=FALSE, pad=0.5, edge.col="black", coord=mynetlayout, main="Priors weight = 0 (data only)")
+priors.weight 0.25
+mytopot <- myres.cv.pw025$topology
+xnett <- network(x=mytopot, matrix.type="adjacency", directed=TRUE, loops=FALSE, vertex.attrnames=dimnames(mytopot)[[1]])
+plot.network(x=xnett, displayisolates=TRUE, displaylabels=FALSE, boxed.labels=FALSE, label.pos=0, arrowhead.cex=1.5, vertex.cex=2, vertex.col="royalblue", jitter=FALSE, pad=0.5, edge.col="black", coord=mynetlayout, main="Priors weight = 0.25")
+priors.weight 0.75
+mytopot <- myres.cv.pw075$topology
+xnett <- network(x=mytopot, matrix.type="adjacency", directed=TRUE, loops=FALSE, vertex.attrnames=dimnames(mytopot)[[1]])
+plot.network(x=xnett, displayisolates=TRUE, displaylabels=FALSE, boxed.labels=FALSE, label.pos=0, arrowhead.cex=1.5, vertex.cex=2, vertex.col="royalblue", jitter=FALSE, pad=0.5, edge.col="black", coord=mynetlayout, main="Priors weight = 0.75")
+priors.weight 1
+mytopot <- myres.cv.pw1$topology
+xnett <- network(x=mytopot, matrix.type="adjacency", directed=TRUE, loops=FALSE, vertex.attrnames=dimnames(mytopot)[[1]])
+plot.network(x=xnett, displayisolates=TRUE, displaylabels=FALSE, boxed.labels=FALSE, label.pos=0, arrowhead.cex=1.5, vertex.cex=2, vertex.col="royalblue", jitter=FALSE, pad=0.5, edge.col="black", coord=mynetlayout, main="Priors weight = 1 (priors only)")
+par(def.par)
+
+
+gg <- c("0", "0.25", "0.50", "0.75", "1")
+mystab.cv.pw <- list(myres.cv.pw0$edge.stability[myres.cv.pw0$topology == 1], myres.cv.pw025$edge.stability[myres.cv.pw025$topology == 1], myres.cv.pw050$edge.stability[myres.cv.pw050$topology == 1], myres.cv.pw075$edge.stability[myres.cv.pw075$topology == 1], myres.cv.pw1$edge.stability[myres.cv.pw1$topology == 1])
+names(mystab.cv.pw) <- gg
+boxplot(mystab.cv.pw, xlab="priors.weight", ylim=c(0, 1), ylab="Edge stability", border="grey", col="lightgrey", outline=FALSE)
+points(x=jitter(x=rep(1:length(mystab.cv.pw), times=sapply(mystab.cv.pw, length)), amount=0.15), y=unlist(mystab.cv.pw), cex=0.55, pch=16, col="royalblue")
+
+gg <- c("0", "0.25", "0.50", "0.75", "1")
+myr2.cv.pw <- cbind(apply(myres.cv.pw0$prediction.score.cv$r2, 2, mean, na.rm=TRUE), apply(myres.cv.pw025$prediction.score.cv$r2, 2, mean, na.rm=TRUE), apply(myres.cv.pw050$prediction.score.cv$r2, 2, mean, na.rm=TRUE), apply(myres.cv.pw075$prediction.score.cv$r2, 2, mean, na.rm=TRUE), apply(myres.cv.pw1$prediction.score.cv$r2, 2, mean, na.rm=TRUE))
+colnames(myr2.cv.pw) <- gg
+gg <- factor(rep(gg, each=genen), levels=gg)
+boxplot(myr2.cv.pw, xlab="priors.weight", ylim=c(0, 1), ylab="$R^2$", border="grey", col="lightgrey", outline=FALSE)
+points(x=jitter(x=rep(1:ncol(myr2.cv.pw), times=nrow(myr2.cv.pw)), amount=0.15), y=as.vector(t(myr2.cv.pw)), cex=0.55, pch=16, col="royalblue")
+
+Friedman test to test whether at least one of the networks gives statstically different predictive ability
+print(friedman.test(y=myr2.cv.pw))
+
+Pairwise Wilcoxon Rank Sum tests
+print(pairwise.wilcox.test(x=as.vector(myr2.cv.pw), g=gg, paired=TRUE, exact=FALSE, alternative="two.sided", p.adjust.method="holm"))
+
+
+expO
+myres21.cv <- netinf.cv(data=data.ras[ ,goi], categories=3, priors=priors2.ras[goi,goi], maxparents=4, priors.weight=0, method="regrnet", nfold=10, seed=54321)
+
+jorissen
+myres22.cv <- netinf.cv(data=data2.ras[ ,goi], categories=3, priors=priors2.ras[goi,goi], maxparents=4, priors.weight=0, method="regrnet", nfold=10, seed=54321)
+
+
+topo1 <- myres21.cv$topology
+topo2 <- myres22.cv$topology
+preparing colors
+myedgecols <- matrix("white", nrow=nrow(topo1), ncol=ncol(topo1), dimnames=dimnames(topo1))
+myedgecols[topo1== 1 & topo2 == 1 & pn.priors.counts[rownames(topo1), colnames(topo1)] > 0] <- "orange"
+myedgecols[topo1== 1 & topo2 == 1 & pn.priors.counts[rownames(topo1), colnames(topo1)]  <= 0] <- "red"
+
+def.par <- par(no.readonly=TRUE)
+layout(mat=matrix(1:2, nrow=1, ncol=2, byrow=TRUE))
+expO
+mycolt <- myedgecols
+mycolt[myedgecols == "white" & topo1 == 1 ] <- "gray"
+xnett <- network(x=topo1, matrix.type="adjacency", directed=TRUE, loops=FALSE, vertex.attrnames=dimnames(mytopot)[[1]])
+plot.network(x=xnett, displayisolates=TRUE, displaylabels=FALSE, boxed.labels=FALSE, label.pos=0, arrowhead.cex=1.5, vertex.cex=2, vertex.col="royalblue", jitter=FALSE, pad=0.5, edge.col=mycolt, coord=mynetlayout, main="Dataset: expO.colon.ras")
+jorissen
+mycolt <- myedgecols
+mycolt[myedgecols == "white" & topo2 == 1 ] <- "gray"
+xnett <- network(x=topo2, matrix.type="adjacency", directed=TRUE, loops=FALSE, vertex.attrnames=dimnames(mytopot)[[1]])
+plot.network(x=xnett, displayisolates=TRUE, displaylabels=FALSE, boxed.labels=FALSE, label.pos=0, arrowhead.cex=1.5, vertex.cex=2, vertex.col="royalblue", jitter=FALSE, pad=0.5, edge.col=mycolt, coord=mynetlayout, main="Dataset: jorissen.colon.ras")
+par(def.par)
+
+
+###################################################
+#code chunk number 43: regnetcvtopo1topo2fig2
+###################################################
+topo1 <- myres21.cv$topology
+topo2 <- myres22.cv$topology
+preparing colors
+myedgecols <- matrix("white", nrow=nrow(topo1), ncol=ncol(topo1), dimnames=dimnames(topo1))
+myedgecols[topo1== 1 & topo2 == 1 & pn.priors.counts[rownames(topo1), colnames(topo1)] > 0] <- "orange"
+myedgecols[topo1== 1 & topo2 == 1 & pn.priors.counts[rownames(topo1), colnames(topo1)]  <= 0] <- "red"
+
+def.par <- par(no.readonly=TRUE)
+layout(mat=matrix(1:2, nrow=1, ncol=2, byrow=TRUE))
+expO
+mycolt <- myedgecols
+mycolt[myedgecols == "white" & topo1 == 1 ] <- "gray"
+xnett <- network(x=topo1, matrix.type="adjacency", directed=TRUE, loops=FALSE, vertex.attrnames=dimnames(mytopot)[[1]])
+plot.network(x=xnett, displayisolates=TRUE, displaylabels=FALSE, boxed.labels=FALSE, label.pos=0, arrowhead.cex=1.5, vertex.cex=2, vertex.col="royalblue", jitter=FALSE, pad=0.5, edge.col=mycolt, coord=mynetlayout, main="Dataset: expO.colon.ras")
+jorissen
+mycolt <- myedgecols
+mycolt[myedgecols == "white" & topo2 == 1 ] <- "gray"
+xnett <- network(x=topo2, matrix.type="adjacency", directed=TRUE, loops=FALSE, vertex.attrnames=dimnames(mytopot)[[1]])
+plot.network(x=xnett, displayisolates=TRUE, displaylabels=FALSE, boxed.labels=FALSE, label.pos=0, arrowhead.cex=1.5, vertex.cex=2, vertex.col="royalblue", jitter=FALSE, pad=0.5, edge.col=mycolt, coord=mynetlayout, main="Dataset: jorissen.colon.ras")
+par(def.par)
+
+
+###################################################
+#code chunk number 44: regnetcvtopo1topo2stabfig20 (eval = FALSE)
+###################################################
+def.par <- par(no.readonly=TRUE)
+layout(mat=matrix(1:2, nrow=1, ncol=2, byrow=TRUE))
+expO
+stab2 <- list("specific"=myres21.cv$edge.stability[(topo1 == 1 & topo2 == 0)], "common"=myres21.cv$edge.stability[topo1 == 1 & topo2 == 1])
+wt <- wilcox.test(x=stab2$specific, y=stab2$common)
+boxplot(stab2, ylab="Stability", ylim=c(0, 1), xlab="", border="grey", col="lightgrey", outline=FALSE, sub=sprintf("Wilcoxon test p-value = %.1E", wt$p.value), main="Dataset: expO.colon.ras")
+points(x=jitter(x=rep(1:length(stab2), times=sapply(stab2, length)), amount=0.15), y=unlist(stab2), cex=0.55, pch=16, col="royalblue")
+jorissen
+stab2 <- list("specific"=myres22.cv$edge.stability[(topo1 == 0 & topo2 == 1)], "common"=myres22.cv$edge.stability[topo1 == 1 & topo2 == 1])
+wt <- wilcox.test(x=stab2$specific, y=stab2$common)
+boxplot(stab2, ylab="Stability", ylim=c(0, 1), xlab="", border="grey", col="lightgrey", outline=FALSE, sub=sprintf("Wilcoxon test p-value = %.1E", wt$p.value), main="Dataset: jorissen.colon.ras")
+points(x=jitter(x=rep(1:length(stab2), times=sapply(stab2, length)), amount=0.15), y=unlist(stab2), cex=0.55, pch=16, col="royalblue")
+par(def.par)
+
+
+###################################################
+#code chunk number 45: regnetcvtopo1topo2stabfig2
+###################################################
+def.par <- par(no.readonly=TRUE)
+layout(mat=matrix(1:2, nrow=1, ncol=2, byrow=TRUE))
+expO
+stab2 <- list("specific"=myres21.cv$edge.stability[(topo1 == 1 & topo2 == 0)], "common"=myres21.cv$edge.stability[topo1 == 1 & topo2 == 1])
+wt <- wilcox.test(x=stab2$specific, y=stab2$common)
+boxplot(stab2, ylab="Stability", ylim=c(0, 1), xlab="", border="grey", col="lightgrey", outline=FALSE, sub=sprintf("Wilcoxon test p-value = %.1E", wt$p.value), main="Dataset: expO.colon.ras")
+points(x=jitter(x=rep(1:length(stab2), times=sapply(stab2, length)), amount=0.15), y=unlist(stab2), cex=0.55, pch=16, col="royalblue")
+jorissen
+stab2 <- list("specific"=myres22.cv$edge.stability[(topo1 == 0 & topo2 == 1)], "common"=myres22.cv$edge.stability[topo1 == 1 & topo2 == 1])
+wt <- wilcox.test(x=stab2$specific, y=stab2$common)
+boxplot(stab2, ylab="Stability", ylim=c(0, 1), xlab="", border="grey", col="lightgrey", outline=FALSE, sub=sprintf("Wilcoxon test p-value = %.1E", wt$p.value), main="Dataset: jorissen.colon.ras")
+points(x=jitter(x=rep(1:length(stab2), times=sapply(stab2, length)), amount=0.15), y=unlist(stab2), cex=0.55, pch=16, col="royalblue")
+par(def.par)
+
+
+pred2 <- list("expO"=apply(myres21.cv$prediction.score.cv$r2, 2, mean, na.rm=TRUE), "jorissen"=apply(myres22.cv$prediction.score.cv$r2, 2, mean, na.rm=TRUE))
+plot(x=pred2$expO, y=pred2$jorissen, xlim=c(0, 0.6), ylim=c(0, 0.6), pch=16, col="royalblue", xlab="Prediction scores in expO.colon.ras", ylab="Prediction scores in jorissen.colon.ras")
+legend(x="bottomright", legend=sprintf("cor = %.2g", cor(pred2$expO, pred2$jorissen, method="spearman", use="complete.obs")), bty="n")
+
+```
+
