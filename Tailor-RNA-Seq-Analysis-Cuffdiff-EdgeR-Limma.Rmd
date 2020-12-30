@@ -1,0 +1,891 @@
+---
+title: "The Tailor RNA-Seq Analysis Pipeline"
+subtitle: "Comparison of Differential Expression Results accross Cuffdiff EdgeR Limma Voom"
+author: "Andrew Judell"
+date: "12/25/2020"
+output:
+  pdf_document:
+    number_sections: yes
+    toc: yes
+---
+
+```{r library-load}
+# Bioconductor# Cran
+library(markdown);library(rmarkdown);library(knitr);library(bookdown);library(thesisdown)
+library(dplyr);library(magrittr); library(tidyverse);library(rpart);library(rpart.plot)
+library(gplots);library(ggplot2);library(igraph);library(corrplot);library(viridis)
+library(stats);library(stats4);library(outliers);library(nortest);library(pvclust)
+library(apeglm);library(rticles);library(memisc);library(MBESS);library(cowplot)
+library(Hmisc);library(psych);library(lme4);library(lmm);library(nlme)
+library(kableExtra);library(xtable);library(DT);library(gridExtra)
+library(stringi);library(stringr);library(readr);library(png)
+library(afex);library(apaTables);library(dissertateUSU)
+# Bioconductor font-family: Times New Roman
+library(ReactomePA);library(rtracklayer);library(reactome.db);library(DOSE)
+library(genefilter);library(cummeRbund);library(limma);library(edgeR)
+library(STRINGdb);library(GenomicRanges);library(GenomicFeatures)
+library(DLBCL);library(DESeq2);library(DESeq);library(enrichplot)
+library(topGO);library(GOstats);library(gage);library(gageData)
+library(RColorBrewer);library(VennDiagram);library(parallel)
+library(org.Hs.eg.db);library(biomaRt); library(biomartr)
+library(pathview);library(MASS);library(clusterProfiler)
+# Data and gene sets
+data(egSymb);data(bods);data(korg);data(carta.hs);data(interactome)
+data(kegg.gs.dise);data(kegg.sets.hs);data(sigmet.idx.hs)
+data(go.sets.hs);data(go.subs.hs);data(ko.ids)
+data(gene.idtype.list);data(gene.idtype.bods)
+data(kegg.met);data(kegg.gs)
+```
+
+```{r Functions}
+scale01 <- function(x){(x-min(x))/(max(x)-min(x))}
+#source("https://faculty.ucr.edu/~tgirke/Documents/R_BioCond/My_R_Scripts/GOHyperGAll.txt")
+# sequence data
+genome.fa="/media/drew/easystore/umb_triley/Reference-Genomes/Human/UCSC_hg38/genome.fa"
+refgtf="/media/drew/easystore/umb_triley/Reference-Genomes/Human/UCSC_hg38/genes.gtf"
+inDir="/media/drew/easystore/umb_triley/urine1/cuffdiff_results_hg38_default/LUTS-over-CTRL"
+cuff<-cummeRbund::readCufflinks(dir=inDir,genome=genome.fa,gtfFile=refgtf, rebuild=F)
+
+scrs=file.path("/media/drew/easystore/umb_triley/urine1/Sample-Library-Preparation/MichiganUrineSpecimensAUASIscores.csv")
+AUASI<-read_csv(scrs,trim_ws = T,col_names = TRUE)
+AUASI.df<-AUASI %>%
+   mutate(Sample.Num = paste("Sample", Samples, sep="_"))
+lanes<-read_csv(file="/media/drew/easystore/umb_triley/urine1/Sample-Library-Preparation/lane-and-sample-numbers.csv", col_names = T,trim_ws = T)
+pool<-read_delim(file="/media/drew/easystore/umb_triley/urine1/Sample-Library-Preparation/Pool-A-and-Pool-B-barcode-summary.csv", col_names = c("sample.number","NuGene.Adapter.Num", "barcode.seq","lanes"), trim_ws = T,  delim=",")
+# run data
+lane<-as.factor(pool$lanes)
+replicates.info<-cummeRbund::replicates(cuff)
+groups<-replicates.info$sample_name
+under=groups[1]
+over=groups[((length(groups)/2)+1)]
+grp.factor<-c(rep(0,9),rep(1,9))
+grp.fac<-factor(grp.factor, levels=0:1, labels=c(under, over))
+cuffdir<-dirname(replicates.info$file)
+sample_number<-basename(cuffdir)
+replicates.info<-replicates.info[-1]
+replicates.info$sample_number<-basename(cuffdir)
+replicates.info$sample_number <- gsub("_out","",replicates.info$sample_number)
+replicate.df<-merge(replicates.info, pool, by.x="sample_number",by.y="sample.number")
+replicates.df<-merge(replicate.df, AUASI.df, by.x="sample_number",by.y="Sample.Num")
+replicates.df<-replicates.df[,-2,-8]
+design <- model.matrix(~ 0 + Group, data=replicates.df)
+colnames(design)<-c("CTRL","LUTS")
+row.names(design) <- replicates.df$rep_name
+# contrast matrix
+contr.matrix <- makeContrasts(CTRL-LUTS, levels=design)
+auasi.df="/media/drew/easystore/umb_triley/Thesis/AUASI.df.txt"
+auasi.file = file.path(auasi.df)
+#write.table(AUASI.df,file = auasi.file, sep = "  ", row.names = F, col.names = T,quote = F)
+
+gtfDir="/media/drew/easystore/umb_triley/urine1/cuffcompare_results_hg38_gtf_guided"
+gtffile <- file.path(gtfDir,"cuffcmp.combined.gtf")
+cuffcmp="/media/drew/easystore/umb_triley/urine1/cuffcompare_results_hg38_gtf_guided/cuffcmp.combined.gtf"
+mergedgtf <- readGFF(cuffcmp)
+hg38.genes.gtf<-as.data.frame(mergedgtf)
+novelmerged<-hg38.genes.gtf[which(hg38.genes.gtf["class_code"] != "="),]
+novel.hg38.granges<-makeGRangesFromDataFrame(novelmerged, keep.extra.columns=TRUE)
+hg38.granges<-makeGRangesFromDataFrame(hg38.genes.gtf, keep.extra.columns=TRUE)
+txdb <- makeTxDbFromGFF(gtffile, format="gtf", circ_seqs=character())
+seqlevels(txdb)<-seqlevels0(txdb)
+seq.txdb<-seqlevels(txdb)
+tbg <- transcriptsBy(txdb,by="gene")
+```
+
+```{r gene-expression}
+g.rep.matrix<-repCountMatrix(cummeRbund::genes(cuff))
+genes_exp.diff<-diffData(cummeRbund::genes(cuff))
+g.cnt.df<-repCountMatrix(cummeRbund::genes(cuff))
+cuff.table<-diffTable(cummeRbund::isoforms(cuff))
+cuffnames<-gsub(x=colnames(cuff.table),pattern="LUTS_CTRL_", replacement ="")
+colnames(cuff.table)<-cuffnames
+# set Inf and -Inf with ceiling and floor
+# set real number ceiling and floor
+ma<-max(genes_exp.diff$log2_fold_change[is.finite(genes_exp.diff$log2_fold_change)])
+mi<-min(genes_exp.diff$log2_fold_change[is.finite(genes_exp.diff$log2_fold_change)])
+# set Inf and -Inf with ceiling and floor
+genes_exp.diff$log2_fold_change<-replace(genes_exp.diff$log2_fold_change,
+                                         genes_exp.diff$log2_fold_change == "Inf", ma)
+genes_exp.diff$log2_fold_change<-replace(genes_exp.diff$log2_fold_change,
+                                         genes_exp.diff$log2_fold_change == "-Inf", mi)
+cuff.table$log2_fold_change<-replace(cuff.table$log2_fold_change,
+                                     cuff.table$log2_fold_change == "Inf", ma)
+cuff.table$log2_fold_change<-replace(cuff.table$log2_fold_change,
+                                     cuff.table$log2_fold_change == "-Inf", mi)
+
+cufftable.sig.df<-subset(cuff.table, cuff.table$significant=="yes")
+cufftable.ok.df<-subset(cuff.table, cuff.table$status=="OK")
+# sig gene expr data
+sig_genes_exp.diff<-subset(genes_exp.diff, genes_exp.diff$significant=="yes")
+mySigGenes<-getSig(cuff,x=over,y=under,alpha=0.05,level='genes')
+sigGenes<-getGenes(cuff, mySigGenes)
+# gene expr df and ma
+g.cnt.df=as.data.frame(g.cnt.df)
+g.cnt.ma=as.matrix(g.cnt.df)
+# select directionally similar genes for each group
+sig.h.genes_exp.diff<-subset(sig_genes_exp.diff,
+                             sig_genes_exp.diff$log2_fold_change > 0
+                             & sig_genes_exp.diff$q_value < 0.05)
+sig.l.genes_exp.diff<-subset(sig_genes_exp.diff,
+                             sig_genes_exp.diff$log2_fold_change < 0
+                             & sig_genes_exp.diff$q_value < 0.05)
+
+s.g.h.rep.matrix<-g.cnt.df[which(row.names(g.cnt.df) %in% sig.h.genes_exp.diff$gene_id),]
+s.g.l.rep.matrix<-g.cnt.df[which(row.names(g.cnt.df) %in% sig.l.genes_exp.diff$gene_id),]
+# factors for conditions
+under.group<-grep(pattern=under, colnames(g.cnt.df))
+over.group<-grep(pattern=over, colnames(g.cnt.df))
+
+# get go ids
+g.cnt.df$EntrezID<- mapIds(org.Hs.eg.db,
+                           keys=rownames(g.cnt.df),
+                           column="ENTREZID",keytype="SYMBOL",
+                           multiVals="first")
+g.cnt.df<-g.cnt.df[!duplicated(g.cnt.df$EntrezID),]
+g.cnt.df<-g.cnt.df[!is.na(g.cnt.df$EntrezID),]
+g.cnt.df$GOid<- mapIds(org.Hs.eg.db,
+                       keys=rownames(g.cnt.df),
+                       column="GO",keytype="SYMBOL",
+                       multiVals="first")
+g.cnt.df<-g.cnt.df[!is.na(g.cnt.df$GOid),]
+inds <- which(!is.na(g.cnt.df$GOid) & !is.na(g.cnt.df$EntrezID))
+# factors for conditions
+g.cnt.df<-g.cnt.df[inds,]
+g.cnt.ma<-g.cnt.ma[inds,]
+g.o.cnt.df<-g.cnt.df[,over.group]
+g.u.cnt.df<-g.cnt.df[,under.group]
+
+sig.cnt.df<-g.cnt.df[which(row.names(g.cnt.df) %in% sig_genes_exp.diff$gene_id),]
+
+s.g.h.rep.matrix<-s.g.h.rep.matrix[,over.group]
+s.g.l.rep.matrix<-s.g.l.rep.matrix[,under.group]
+
+s.g.h.rep.matrix<-s.g.h.rep.matrix[,c(1:9)]
+s.g.l.rep.matrix<-s.g.l.rep.matrix[,c(1:9)]
+
+#upgenes<-file.path("/media/drew/easystore/umb_triley/Thesis/sig_up_genes.csv")
+#write_lines(row.names(s.g.h.rep.matrix),path = upgenes)
+#downgenes<-file.path("/media/drew/easystore/umb_triley/Thesis/sig_down_genes.csv")
+#write_lines(row.names(s.g.l.rep.matrix), path = downgenes)
+```
+
+```{r Upregulated subnets}
+
+#Create a graph adjacency based on correlation distances between genes in  pairwise fashion.
+oh.graph <- graph.adjacency(as.matrix(as.dist(cor(t(s.g.h.rep.matrix),method="pearson"))),
+                            mode="undirected", weighted=TRUE, diag=T)
+#Simplfy the adjacency object  over.graph <- simplify(over.graph, remove.multiple=TRUE, remove.loops=TRUE)
+
+#Create a graph adjacency based on correlation distances between genes in  pairwise fashion.
+#oh.graph <- graph.adjacency(as.matrix(as.dist(cor(t(over.grp.h.fpkm.ma),method="pearson"))),
+#                            mode="undirected", weighted=TRUE, diag=FALSE)
+#Simplfy the adjacency object  over.graph <- simplify(over.graph, remove.multiple=TRUE, remove.loops=TRUE)
+#Colour negative correlation edges as blue
+E(oh.graph)[which(E(oh.graph)$weight<0)]$color <- "yellowblue"
+#Colour positive correlation edges as red
+E(oh.graph)[which(E(oh.graph)$weight>0)]$color <- "blue"
+#Convert edge weights to absolute values
+E(oh.graph)$weight <- abs(E(oh.graph)$weight)
+#Change arrow size #For directed graphs only
+E(oh.graph)$arrow.size <- 1.0
+#Remove edges below absolute Pearson correlation 0.9
+oh.graph <- delete_edges(oh.graph, abs(E(oh.graph))[which(E(oh.graph)$weight<0.9)])
+#Assign names to the graph vertices (optional)
+V(oh.graph)$name <- V(oh.graph)$name
+#Change shape of graph vertices
+V(oh.graph)$shape <- "sphere"
+#Change colour of graph vertices
+V(oh.graph)$color <- "skyblue"
+#Change colour of vertex frames
+V(oh.graph)$vertex.frame.color <- "green"
+#Scale the size of the vertices to be proportional to the level of expression of each gene represented by each
+
+oh.vSizes <- (scale01(apply(over.grp.h.fpkm.ma, 1, mean)) + 1.0) * 10
+#Amplify or decrease the width of the edges
+oh.edgeweights <- E(oh.graph)$weight * 2.0
+#Convert the graph adjacency object into a minimum spanning tree based on Prim's algorithm
+oh.mst <- mst(oh.graph, algorithm="prim")
+#Plot the tree object
+#mst.communities <- edge.betweenness.community(mst, directed=T)
+oh.mst.communities <- edge.betweenness.community(oh.mst, directed=T)
+oh.mst.clustering <- make_clusters(oh.mst, membership=oh.mst.communities$membership)
+V(oh.mst)$color <- oh.mst.communities$membership + 1
+
+plot(oh.mst.clustering, oh.mst,layout=layout.fruchterman.reingold,
+     edge.curved=TRUE,vertex.size=oh.vSizes, vertex.label.dist=-0.5,
+     vertex.label.color="black", asp=FALSE,vertex.label.cex=0.6,
+     edge.width=oh.edgeweights, edge.arrow.mode=0,
+     main=paste0("Up regulated Genes in the ", over, " Patient Group"))
+```
+
+
+```{r Downregulated subnets}
+
+#Create a graph adjacency based on correlation distances between genes in  pairwise fashion.
+ol.graph <- graph.adjacency(as.matrix(as.dist(cor(t(s.g.l.rep.matrix),method="pearson"))),
+                            mode="undirected", weighted=TRUE, diag=T)
+#Simplfy the adjacency object  over.graph <- simplify(over.graph, remove.multiple=TRUE, remove.loops=TRUE)
+#ol.graph <- graph.adjacency(as.matrix(as.dist(cor(t(over.grp.l.fpkm.ma),method="pearson"))),
+#                            mode="undirected", weighted=TRUE, diag=FALSE)
+#Simplfy the adjacency object  over.graph <- simplify(over.graph, remove.multiple=TRUE, remove.loops=TRUE)
+#Colour negative correlation edges as blue
+E(ol.graph)[which(E(ol.graph)$weight<0)]$color <- "yellowblue"
+#Colour positive correlation edges as red
+E(ol.graph)[which(E(ol.graph)$weight>0)]$color <- "blue"
+#Convert edge weights to absolute values
+E(ol.graph)$weight <- abs(E(ol.graph)$weight)
+#Change arrow size #For directed graphs only
+E(ol.graph)$arrow.size <- 1.0
+#Remove edges below absolute Pearson correlation 0.9
+ol.graph <- delete_edges(ol.graph, abs(E(ol.graph))[which(E(ol.graph)$weight<0.9)])
+#Assign names to the graph vertices (optional)
+V(ol.graph)$name <- V(ol.graph)$name
+#Change shape of graph vertices
+V(ol.graph)$shape <- "sphere"
+#Change colour of graph vertices
+V(ol.graph)$color <- "skyblue"
+#Change colour of vertex frames
+V(ol.graph)$vertex.frame.color <- "green"
+
+ol.vSizes <- (scale01(apply(over.grp.l.fpkm.ma, 1, mean)) + 1.0) * 10
+#Amplify or decrease the width of the edges
+ol.edgeweights <- E(ol.graph)$weight * 2.0
+#Convert the graph adjacency object into a minimum spanning tree based on Prim's algorithm
+ol.mst <- mst(ol.graph, algorithm="prim",)
+#Plot the tree object
+ol.mst.communities <- edge.betweenness.community(ol.mst, directed=F)
+ol.mst.clustering <- make_clusters(ol.mst, membership=ol.mst.communities$membership)
+V(ol.mst)$color <- ol.mst.communities$membership + 1
+
+plot(ol.mst.clustering, ol.mst,layout=layout.fruchterman.reingold,
+     edge.curved=TRUE,vertex.size=ol.vSizes, vertex.label.dist=-0.5,
+     vertex.label.color="black", asp=FALSE,vertex.label.cex=0.6,
+     edge.width=ol.edgeweights, edge.arrow.mode=0,
+     main=paste0("Down regulated Genes in the ", over, " Patient Group"))
+```
+
+```{r KEGG-pathway-analysis}
+s.g.h.rep.matrix$EntrezID <- mapIds(org.Hs.eg.db,
+                                    keys=rownames(s.g.h.rep.matrix),
+                                    column="ENTREZID",keytype="SYMBOL",
+                                    multiVals="first")
+s.g.h.rep.matrix$GO <- mapIds(org.Hs.eg.db,
+                              keys=rownames(s.g.h.rep.matrix),
+                              column="GO",keytype="SYMBOL",
+                              multiVals="first")
+
+s.g.l.rep.matrix$EntrezID <- mapIds(org.Hs.eg.db,
+                                    keys=rownames(s.g.l.rep.matrix),
+                                    column="ENTREZID",keytype="SYMBOL",
+                                    multiVals="first")
+s.g.l.rep.matrix$GO <- mapIds(org.Hs.eg.db,
+                              keys=rownames(s.g.l.rep.matrix),
+                              column="GO",keytype="SYMBOL",
+                              multiVals="first")
+over.grp.fpkm.ma<-s.g.h.rep.matrix[,1:9]
+under.grp.fpkm.ma<-s.g.l.rep.matrix[,1:9]
+genes_exp.diff$entrez <- mapIds(org.Hs.eg.db,keys=genes_exp.diff$gene_id,
+                                column="ENTREZID",keytype="SYMBOL",
+                                multiVals="first")
+
+foldchanges<-genes_exp.diff$log2_fold_change
+isntna <- g.cnt.df[!is.na(g.cnt.df$EntrezID),]
+#foldchanges <-foldchanges[isntna]
+folddown<-order(foldchanges, decreasing = T)
+foldchanges <- foldchanges[na.omit(names(foldchanges[folddown]))]
+gene <- names(foldchanges)[abs(foldchanges) > 2]
+
+foldchanges<-genes_exp.diff$log2_fold_change
+names(foldchanges)<-genes_exp.diff$entrez
+isntna <- !is.na(names(foldchanges))
+foldchanges <-foldchanges[isntna]
+folddown<-order(foldchanges, decreasing = T)
+genes <- names(foldchanges)[abs(foldchanges) > 2]
+det <- foldchanges[abs(foldchanges) > 2]
+
+fold.change<-genes_exp.diff[,"log2_fold_change"]
+foldchange<-sig_genes_exp.diff[,"log2_fold_change"]
+over.= which(foldchange > 0, foldchange == "Inf", foldchange != "-Inf")
+under. = which(foldchange < 0,  foldchange == "-Inf")
+
+HIexp.inOVER<-as.data.frame(sig_genes_exp.diff[over.,])
+HIexp.inUNDER<-as.data.frame(sig_genes_exp.diff[under.,])
+
+ENTREZQvalUNDERhi<-mapIds(x = org.Hs.eg.db,
+                          keys = HIexp.inUNDER$gene_id,
+                          column = "ENTREZID",
+                          keytype = "SYMBOL",
+                          multiVals="first")
+ENTREZQvalOVERhi<-mapIds(x = org.Hs.eg.db,
+                         keys = HIexp.inOVER$gene_id,
+                         column = "ENTREZID",
+                         keytype = "SYMBOL",
+                         multiVals="first")
+genes_exp.diff$entrezids<-mapIds(x = org.Hs.eg.db,
+                                 keys = genes_exp.diff$gene_id,
+                                 column = "ENTREZID",
+                                 keytype = "SYMBOL",
+                                 multiVals="first")
+sig_genes_exp.diff$entrezids<-mapIds(x = org.Hs.eg.db,
+                                     keys = sig_genes_exp.diff$gene_id,
+                                     column = "ENTREZID",
+                                     keytype = "SYMBOL",
+                                     multiVals="first")
+sig_genes_exp<-cbind(entrezids=sig_genes_exp.diff$entrezids,
+                     genesymbols = sig_genes_exp.diff$gene_id,
+                     pval=sig_genes_exp.diff[,"p_value"],
+                     qval=sig_genes_exp.diff[,"q_value"],
+                     log2fold=sig_genes_exp.diff[,"log2_fold_change"])
+sig.genes.exp<-sig_genes_exp[which(!is.na(sig_genes_exp))]
+genes.exp<-genes_exp.diff[which(!is.na(genes_exp.diff$entrezids)),]
+
+over.group<-grep(pattern = over, x = colnames(g.rep.matrix),ignore.case = T)
+under.group<-grep(pattern = under, x = colnames(g.rep.matrix),ignore.case = T)
+
+g.under.matrix<-g.rep.matrix[,under.group]
+g.over.matrix<-g.rep.matrix[,over.group]
+
+genes<-rownames(genes.exp)
+foldchange<-genes.exp[,"log2_fold_change"]
+qval<-genes.exp[,"q_value"]
+
+under.in = which(foldchange < 0, foldchange >= "-Inf", qval < 0.05)
+over.in= which(foldchange > 0, foldchange < "Inf",  qval < 0.05)
+
+HIexp.inOVER<-as.data.frame(genes_exp.diff[over.in,])
+HIexp.inOVER$q_value<-HIexp.inOVER[,"q_value"]
+HIexp.inOVER$logFC<-HIexp.inOVER[,"log2_fold_change"]
+
+ma<-max(HIexp.inOVER$logFC[is.finite(HIexp.inOVER$logFC)])
+mi<-min(HIexp.inOVER$logFC[is.finite(HIexp.inOVER$logFC)])
+HIexp.inOVER$logFC<-replace(HIexp.inOVER$logFC, HIexp.inOVER$logFC == "Inf", ma)
+HIexp.inOVER$logFC<-replace(HIexp.inOVER$logFC, HIexp.inOVER$logFC == "-Inf", mi)
+HIexp.inOVER$entrezid<-mapIds(x = org.Hs.eg.db,keys =  HIexp.inOVER$gene_id,
+                              column = "ENTREZID",keytype = "SYMBOL",multiVals="first")
+HIexp.inOVER <- HIexp.inOVER[which(!is.na(HIexp.inOVER$entrezid)),]
+isntna <- unique(na.omit(row.names(HIexp.inOVER)))
+HIexp.inOVER <-HIexp.inOVER[isntna,]
+rownames(HIexp.inOVER)<-HIexp.inOVER$entrezid
+HIexp.inOVER<-HIexp.inOVER[,-4]
+OVERexp.qval<-HIexp.inOVER$q_value
+names(OVERexp.qval)<-row.names(HIexp.inOVER)
+
+HIexp.inUNDER<-as.data.frame(genes_exp.diff[under.in,])
+HIexp.inUNDER$q_value<-HIexp.inUNDER[,"q_value"]
+HIexp.inUNDER$logFC<-HIexp.inUNDER[,"log2_fold_change"]
+ma<-max(HIexp.inUNDER$logFC[is.finite(HIexp.inUNDER$logFC)])
+mi<-min(HIexp.inUNDER$logFC[is.finite(HIexp.inUNDER$logFC)])
+HIexp.inUNDER$logFC<-replace(HIexp.inUNDER$logFC, HIexp.inUNDER$logFC == "Inf", ma)
+HIexp.inUNDER$logFC<-replace(HIexp.inUNDER$logFC, HIexp.inUNDER$logFC == "-Inf", mi)
+HIexp.inUNDER$entrezid<-mapIds(x = org.Hs.eg.db,keys =  HIexp.inUNDER$gene_id,
+                               column = "ENTREZID",keytype = "SYMBOL",multiVals="first")
+HIexp.inUNDER <- HIexp.inUNDER[which(!is.na(HIexp.inUNDER$entrezid)),]
+rownames(HIexp.inUNDER)<-HIexp.inUNDER$entrezid
+HIexp.inUNDER<-HIexp.inUNDER[,-4]
+UNDERexp.qval<-HIexp.inUNDER$q_value
+names(UNDERexp.qval)<-row.names(HIexp.inUNDER)
+
+hsagene <- enrichKEGG(gene = genes, organism='hsa', pvalueCutoff = 0.05)
+keggres <- gage(det, gsets=kegg.sets.hs, same.dir=TRUE)
+
+# Get the pathways
+kegguppathways <- data.frame(id=rownames(keggres$greater), keggres$greater) %>%
+   tbl_df() %>%
+   filter(row_number()<=15) %>%
+   .$id %>%
+   as.character()
+kegguppathways
+
+keggdownpathways <- data.frame(id=rownames(keggres$less), keggres$less) %>%
+   tbl_df() %>%
+   filter(row_number()<=15) %>%
+   .$id %>%
+   as.character()
+keggdownpathways
+
+keggupsids <- substr(kegguppathways, start=1, stop=8)
+keggdownsids <- substr(keggdownpathways, start=1, stop=8)
+# plot multiple pathways (plots saved to disk and returns a throwaway list object)
+tmp1 = sapply(keggupsids, function(pid) pathview(gene.data=foldchanges,
+                                                 gene.idtype="ENTREZID", pathway.id=pid,
+                                                 species="hsa"))
+tmp2 = sapply(keggdownsids, function(pid) pathview(gene.data=foldchanges,
+                                                   gene.idtype="ENTREZID", pathway.id=pid,
+                                                   species="hsa"))
+```
+
+
+```{r gene-ontology-analysis, fig.cap="**Gene Ontology Over Representationa Analysis**"}
+gocc <- enrichGO(genes,'org.Hs.eg.db', ont="CC",pAdjustMethod = "BH",pvalueCutoff = 0.05, qvalueCutoff = 0.05)
+gobp <- enrichGO(genes,'org.Hs.eg.db', ont="BP",pAdjustMethod = "BH",pvalueCutoff = 0.05, qvalueCutoff = 0.05)
+gomf <- enrichGO(genes,'org.Hs.eg.db', ont="MF",pAdjustMethod = "BH",pvalueCutoff = 0.05, qvalueCutoff = 0.05)
+
+sigGOcc <- groupGO(gene=ENTREZQvalOVERhi, OrgDb=org.Hs.eg.db, ont="CC",
+                   level=3,readable = TRUE)
+sigGOmf <- groupGO(gene=ENTREZQvalOVERhi, OrgDb=org.Hs.eg.db, ont="MF",
+                   level=3,readable = TRUE)
+sigGObp <- groupGO(gene=ENTREZQvalOVERhi, OrgDb=org.Hs.eg.db, ont="BP",
+                   level=3,readable = TRUE)
+
+xx <- annFUN.org("BP", mapping = "org.Hs.eg.db", ID = "symbol")
+topDiffGenes <- function(allScore) {
+   return(allScore < 0.05)}
+
+Qvalunder.BP.GOdata <- new("topGOdata",ontology = "BP", allGenes = UNDERexp.qval,
+                           nodeSize = 10, annot = annFUN.org,mapping = "org.Hs.eg.db",
+                           geneSel = topDiffGenes,ID = "entrez")
+Qvalunder.MF.GOdata <- new("topGOdata",ontology = "MF",allGenes = UNDERexp.qval,
+                           nodeSize = 10,annot = annFUN.org,mapping = "org.Hs.eg.db",
+                           geneSel = topDiffGenes,ID = "entrez")
+Qvalunder.CC.GOdata <- new("topGOdata",ontology = "CC",allGenes = UNDERexp.qval,
+                           nodeSize = 10, annot = annFUN.org,mapping = "org.Hs.eg.db",
+                           geneSel = topDiffGenes, ID = "entrez")
+
+HIunder.BPtKS <- runTest(Qvalunder.BP.GOdata, algorithm = "classic", statistic = "ks")
+HIunder.BPFisher <- runTest(Qvalunder.BP.GOdata, algorithm = "weight", statistic = "fisher")
+HIunder.BPtKS.elim <- runTest(Qvalunder.BP.GOdata, algorithm = "elim", statistic = "ks")
+
+HIunder.CCtKS <- runTest(Qvalunder.CC.GOdata, algorithm = "classic", statistic = "ks")
+HIunder.CCFisher <- runTest(Qvalunder.CC.GOdata, algorithm = "weight", statistic = "fisher")
+HIunder.CCtKS.elim <- runTest(Qvalunder.CC.GOdata, algorithm = "elim", statistic = "ks")
+
+HIunder.MFtKS <- runTest(Qvalunder.MF.GOdata, algorithm = "classic", statistic = "ks")
+HIunder.MFFisher <- runTest(Qvalunder.MF.GOdata, algorithm = "weight", statistic = "fisher")
+HIunder.MFFtKS.elim <- runTest(Qvalunder.MF.GOdata, algorithm = "elim", statistic = "ks")
+
+underRes.BP <- GenTable(Qvalunder.BP.GOdata, classic = HIunder.BPFisher, KS = HIunder.BPtKS,
+                        weight = HIunder.BPtKS.elim, orderBy = "weight", ranksOf = "classic",
+                        topNodes = 10)
+underRes.MF <- GenTable(Qvalunder.MF.GOdata, classic = HIunder.MFFisher, KS = HIunder.MFtKS,
+                        weight = HIunder.MFFtKS.elim, orderBy = "weight", ranksOf = "classic",
+                        topNodes = 10)
+underRes.CC <- GenTable(Qvalunder.CC.GOdata, classic = HIunder.CCFisher, KS = HIunder.CCtKS,
+                        weight = HIunder.CCtKS.elim, orderBy = "weight", ranksOf = "classic",
+                        topNodes = 10)
+#---------------------------------------------------------------------------------------
+
+Qvalover.BP.GOdata <- new("topGOdata",ontology = "BP",allGenes = OVERexp.qval,
+                          nodeSize = 10, annot = annFUN.org,mapping = "org.Hs.eg.db",
+                          geneSel = topDiffGenes,ID = "entrez")
+Qvalover.MF.GOdata <- new("topGOdata",ontology = "MF",allGenes = OVERexp.qval,
+                          nodeSize = 10, annot = annFUN.org,mapping = "org.Hs.eg.db",
+                          geneSel = topDiffGenes, ID = "entrez")
+Qvalover.CC.GOdata <- new("topGOdata",ontology = "CC",allGenes = OVERexp.qval,
+                          nodeSize = 10, annot = annFUN.org,mapping = "org.Hs.eg.db",
+                          geneSel = topDiffGenes, ID = "entrez")
+
+HIover.MFtKS <- runTest(Qvalover.MF.GOdata, algorithm = "classic", statistic = "ks")
+HIover.MFFisher <- runTest(Qvalover.MF.GOdata, algorithm = "weight", statistic = "fisher")
+HIover.MFFtKS.elim <- runTest(Qvalover.MF.GOdata, algorithm = "elim", statistic = "ks")
+
+HIover.CCtKS <- runTest(Qvalover.CC.GOdata, algorithm = "classic", statistic = "ks")
+HIover.CCFisher <- runTest(Qvalover.CC.GOdata, algorithm = "weight", statistic = "fisher")
+HIover.CCtKS.elim <- runTest(Qvalover.CC.GOdata, algorithm = "elim", statistic = "ks")
+
+HIover.BPtKS <- runTest(Qvalover.BP.GOdata, algorithm = "classic", statistic = "ks")
+HIover.BPFisher <- runTest(Qvalover.BP.GOdata, algorithm = "weight", statistic = "fisher")
+HIover.BPtKS.elim <- runTest(Qvalover.BP.GOdata, algorithm = "elim", statistic = "ks")
+
+overRes.BP <- GenTable(Qvalover.BP.GOdata, classic = HIover.BPFisher, KS = HIover.BPtKS,
+                       weight = HIover.BPtKS.elim, orderBy = "weight", ranksOf = "classic",
+                       topNodes = 10)
+overRes.MF <- GenTable(Qvalover.MF.GOdata, classic = HIover.MFFisher, KS = HIover.MFtKS,
+                       weight = HIover.MFFtKS.elim, orderBy = "weight", ranksOf = "classic",
+                       topNodes = 10)
+overRes.CC <- GenTable(Qvalover.CC.GOdata, classic = HIover.CCFisher, KS = HIover.CCtKS,
+                       weight = HIover.CCtKS.elim, orderBy = "weight", ranksOf = "classic",
+                       topNodes = 10)
+```
+
+```{r Gene-Ontology-Dotplots-CC-BP-MF}
+dotplot(gocc, orderBy="Count", showCategory = 25,color="p.adjust", x="GeneRatio",
+        title="Gene Ontology Dotplot of Cellular Components")
+
+dotplot(gobp, orderBy="Count", showCategory = 25,color="p.adjust", x="GeneRatio",
+        title="Gene Ontology Dotplot of Biological Processes")
+
+dotplot(gomf, orderBy="Count", showCategory = 25, color="p.adjust", x="GeneRatio",
+        title="Gene Ontology Dotplot of Molecular Functions")
+```
+
+
+```{r limma-linear-models}
+lm<-lmFit(g.cnt.ma,design)
+fit.cnt <- eBayes(lmFit(g.cnt.ma,design))
+ebayes.dt <- decideTests(fit.cnt)
+summary(ebayes.dt)
+fit.lm <- lmFit(g.cnt.ma,design)
+fit.bayes <- eBayes(fit.lm)
+limma.res.cnt=topTable(fit.bayes,coef=1,n=Inf,sort="p")
+f.bayes.limma <- decideTests(fit.bayes,adjust.method = "BH",lfc = 1, p.value = 0.05)
+tfit1 <- treat(fit.bayes)
+limma.siggenes<-subset(tfit1$p.value,tfit1$F.p.value < 0.05)
+limma.res.cnt.sig<-subset(limma.res.cnt,
+                          (limma.res.cnt$adj.P.Val < 0.05) & (limma.res.cnt$logFC > 1))
+summary(tfit1)
+fdr.rate=as.numeric(sum(limma.res.cnt.sig$P.Value <0.01))-sum(limma.res.cnt.sig$adj.P.Val <0.01)
+limmapower<-1-fdr.rate/length(limma.res.cnt.sig$P.Value < 0.01)
+limmapower
+
+
+y <- cpm(g.cnt.ma,log=TRUE,prior.count=1)
+fit <- lmFit(y,design,weights=NULL)
+fit <- eBayes(fit,trend=TRUE)
+dt <- decideTests(fit)
+summary(dt)
+# limma notrend - ranked by lods
+fit <- eBayes(fit,trend=FALSE)
+o <- order(fit$lods[,2], decreasing=TRUE)
+# t-test
+t.ord <- fit$coef[,2]/fit$stdev.unscaled[,2]/fit$sigma
+p.ord <- pt(abs(t.ord),df=4,lower.tail=FALSE)*2
+fdr.ord <- p.adjust(p.ord,method="BH")
+o <- order(p.ord)
+sum(fdr.ord<0.5)
+```
+
+
+```{r limma-voom-linear-models}
+
+dgel<- DGEList(counts=g.cnt.ma, group=factor(groups))
+dge.norm <- calcNormFactors(dgel)
+log2.cpm <- voom(dge.norm,design,plot=T)
+fit.lm <- lmFit(log2.cpm,design)
+fit.bayes <- eBayes(fit.lm)
+tfit1 <- treat(fit.bayes)
+f.bayes.voom <- decideTests(fit.bayes)
+voom.siggenes<-subset(tfit1$p.value,tfit1$F.p.value < 0.05)
+voom.res.cnt=topTable(fit.bayes,coef=2,n=Inf,sort="p")
+voom.res.cnt.sig<-subset(voom.res.cnt,
+                         (voom.res.cnt$adj.P.Val < 0.01) & (voom.res.cnt$logFC > 2))
+
+fdr.rate<-sum(tfit1$p.value <0.01)-sum(tfit1$F.p.value <0.01)
+voompower<-1-fdr.rate/length(tfit1$p.value)
+voompower
+```
+
+
+```{r edgeR-Diff-Expr}
+# Classic Approach without filtering
+g.cnt.ma<-g.cnt.ma[row.names(g.cnt.ma),]
+#design <- model.matrix(~0 + lanes, data=replicates.df)
+#colnames(design)<-c("CTRL_L1T4", "CTRL_L5T8", "LUTS_L1T4", "LUTS_L5T8")
+#row.names(design) <- replicates.df$rep_names
+# contrast matrix
+#contr.matrix <- makeContrasts(CTRL_L1T4 - LUTS_L1T4, CTRL_L1T4 - LUTS_L5T8,
+#                              CTRL_L5T8 - LUTS_L5T8, CTRL_L5T8 - LUTS_L1T4,
+#                              levels = c("CTRL_L1T4", "CTRL_L5T8", "LUTS_L1T4", "LUTS_L5T8"))
+# Classic Approach without filtering
+dgeObj <- DGEList(counts=g.cnt.ma, group=grp.fac)
+dgeObj <- calcNormFactors(dgeObj,method = "TMM")
+e.disp<-estimateDisp(dgeObj, design)
+plotBCV(e.disp, main="Coefficient of Variation of Unfiltered Counts per Million")
+qlf <- glmQLFit(e.disp, coef=1.5, dispersion=0.05)
+plotQLDisp(qlf)
+qlft <- glmQLFTest(qlf, coef=1.5)
+topTags(qlft)
+is.de <- decideTests(qlft, p.value=0.01)
+summary(is.de)
+sp <- diffSpliceDGE(qlft, geneid="GeneID")
+exactTst <- exactTest(qlf)
+ex.sig <- subset(exactTst$table, (PValue < 0.05))
+
+
+z <- estimateGLMTrendedDisp(g.cnt.ma,design)
+fite <- glmFit(g.cnt.ma,design,dispersion=z)
+lrt <- glmLRT(fite, contrast=contr.matrix)
+dt <- decideTests(lrt)
+lrt.sig <- subset(lrt$table, (PValue < 0.05))
+sum(p.adjust(lrt$table$PValue,method="BH")<0.05)
+topTags(lrt)
+
+d<- DGEList(counts=g.cnt.ma, group=grp.fac,
+            remove.zeros=TRUE,genes = row.names(g.cnt.ma))
+d <- calcNormFactors(d)
+d = estimateCommonDisp(d)
+d = estimateTagwiseDisp(d)
+exactTst <- exactTest(d)
+exactTest.top <- subset(exactTst$table, (PValue < 0.05))
+edgeR.sigGenes<-rownames(exactTest.top)
+# length(edgeR.sigGenes)
+## Identify genes with at least 1 cpm in at least all of the samples of a group
+keep.exprs <- filterByExpr(d, group=grp.fac)
+counts = d[keep.exprs,]
+# Classic Approach after filtering
+DGEobj.f=DGEList(counts,group=grp.fac, remove.zeros=TRUE,genes = row.names(counts))
+DGEobj.f = calcNormFactors(DGEobj.f)
+DGEobj.f = estimateCommonDisp(DGEobj.f)
+DGEobj.f = estimateTagwiseDisp(DGEobj.f)
+DGEobj.d <- estimateDisp(DGEobj.f,design)
+
+d2 <- estimateGLMCommonDisp(d,design)
+d2 <- estimateGLMTrendedDisp(d2,design, method="auto")
+# You can change method to "auto", "bin.spline", "power", "spline", "bin.loess".
+# The default is "auto" which chooses "bin.spline" when > 200 tags and "power" otherwise.
+d2 <- estimateGLMTagwiseDisp(d2,design)
+exactTst <- exactTest(DGEobj.d, pair=levels(DGEobj.d$samples$group),
+                      dispersion ="trended")
+o.sig.after.filt <- subset(exactTst$table, (PValue < 0.05))
+edgeR.f.sigGenes<-rownames(o.sig.after.filt)
+results_edgeR <- topTags(exactTst, n = length(rownames(o.sig.after.filt)), sort.by = "logFC")
+
+fdr.rate<-sum(exactTest.top$PValue <0.05)-sum(o.sig.after.filt$PValue <0.05)
+edgerpower<-1-(fdr.rate/length(exactTest.top$PValue))
+edgerpower
+```
+
+```{r edgeR-limma-tailor-overlap}
+c.v.sig_genes.df<-subset(sig_genes_exp.diff,
+                         sig_genes_exp.diff$gene_id %in% row.names(voom.res.cnt.sig))
+
+c.e.sig_genes.df<-subset(sig_genes_exp.diff,
+                         sig_genes_exp.diff$gene_id %in% edgeR.f.sigGenes)
+
+c.v.e.sig_genes.df<-subset(c.v.sig_genes.df,
+                           c.v.sig_genes.df$gene_id %in% c.e.sig_genes.df$gene_id)
+
+
+
+{r mean-var-plot-egdeR,fig.cap="**Mean Variance Plots**", fig.align="center", out.height = "75%",  out.width = "45%", fig.show='hold', message=FALSE, warning=FALSE, echo=FALSE}
+plotMeanVar(d, show.tagwise.vars=F, NBline=TRUE, main="Mean-Variance Relationship for All Gene Expression Levels")
+plotMeanVar(DGEobj.f, show.tagwise.vars=T, NBline=TRUE, main="Tagwise Mean-Variance Relationship")
+```
+
+
+```{r sample-density-before-normalization}
+#pdf(file="/media/drew/easystore/umb_triley/Thesis/Tailor_Plots_for_Thesis.pdf")
+design <- model.matrix(~0 + lanes, data=replicates.df)
+colnames(design)<-c("CTRL_L1T4", "CTRL_L5T8", "LUTS_L1T4", "LUTS_L5T8")
+row.names(design) <- replicates.df$rep_names
+# contrast matrix
+contr.matrix <- makeContrasts(CTRL_L1T4 - LUTS_L1T4, CTRL_L1T4 - LUTS_L5T8,
+                              CTRL_L5T8 - LUTS_L5T8, CTRL_L5T8 - LUTS_L1T4,
+                              levels = c("CTRL_L1T4", "CTRL_L5T8",
+                                         "LUTS_L1T4", "LUTS_L5T8"))
+g.cnt.ma<-g.cnt.ma[row.names(g.cnt.ma),]
+grps<-data.frame(samples = colnames(g.cnt.ma), condition=grp.fac)
+# Classic Approach without filtering
+d<- DGEList(counts=g.cnt.ma, group=grp.fac, remove.zeros=TRUE,genes = row.names(g.cnt.ma))
+g.CPM.ma <- cpm(d, prior.count=1)
+g.LCPM.ma <- cpm(d, log=TRUE, prior.count=1)
+## filter genes with less than 1 cpm in at least 9 samples
+keep.exprs <- rowSums(d$counts > 1) >= length(colnames(g.cnt.ma))/2
+# Subset the rows of countdata to keep the more highly expressed genes
+g.f.LCPM.ma <- as.data.frame(g.LCPM.ma[keep.exprs,])
+norm.factors <- calcNormFactors(g.cnt.ma, method = "TMM")
+L <- mean(replicates.df$total_mass) * 1e-6
+M <- median(replicates.df$total_mass) * 1e-6
+lcpm.cutoff <- log(10/M + 2/L)
+nsamples <- ncol(g.LCPM.ma)
+```
+
+```{r gene-expr-density-before-and-after}
+nsamples<-as.numeric(length(colnames(g.LCPM.ma)))
+col <- brewer.pal(nsamples/2, "Paired")
+plot(density(g.LCPM.ma[,1]), col=col[1], lwd=2, ylim=c(0,0.99), las=2, main="", xlab="")
+title(main="Log Counts per Million before Filtering", xlab="Log(Counts/Million)")
+abline(v=lcpm.cutoff, lty=3)
+col <- brewer.pal(c(nsamples/2), "Paired")
+for (i in 2:nsamples){
+   den <- density(g.LCPM.ma[,i])
+   lines(den$x, den$y, col=col[i], lwd=2)
+   legend(legend = colnames(g.LCPM.ma), "topright", text.col=col, bty="n")}
+
+plot(density(g.f.LCPM.ma[,1]), col=col[1], lwd=2, ylim=c(0,0.99), las=2, main="", xlab="")
+title(main="Log Counts per Million after Filtering", xlab="Log(Counts/Million)")
+abline(v=lcpm.cutoff, lty=3)
+col <- brewer.pal(c(nsamples/2), "Paired")
+for (i in 2:nsamples){
+   den <- density(g.f.LCPM.ma[,i])
+   lines(den$x, den$y, col=col[i], lwd=2)
+   legend(legend = colnames(g.f.LCPM.ma), "topright", text.col=col, bty="n")}
+```
+
+```{r Smear-plot-egdeR,fig.cap="**MA plot of Gene Expression Ratio of LUTS over CTRL**"}
+plotSmear(DGEobj.f, de.tags = edgeR.f.sigGenes,smooth.scatter=F,
+          main="MA plot of Genes Expression Ratio of LUTS over CTRL")
+abline(h=c(-2,2), col=c("yellow", "blue"), lty=c(1,1), lwd=c(3, 3))
+```
+
+```{r Biological Correlation-plot-egdeR,fig.cap="Biological Correlation Plots", fig.align="center", out.height = "75%",  out.width = "45%", fig.show='hold', message=FALSE, warning=FALSE, echo=FALSE}
+par(mfrow=c(2,2))
+genas(fit.lm, coef=c(1,2), plot=TRUE,alpha=0.75,subset="all")
+title(main="Biological Correlation of Gene Expression Across Groups")
+genas(fit.lm, coef=c(1,3), plot=TRUE,alpha=0.75)
+title(main="Biological Correlation of Gene Expression Across Groups")
+genas(fit.lm, coef=c(1,4), plot=TRUE,alpha=0.75)
+title(main="Biological Correlation of Gene Expression Across Groups")
+genas(fit.lm, coef=c(2,3), plot=TRUE,alpha=0.75)
+title(main="Biological Correlation of Gene Expression Across Groups")
+par(mfrow=c(1,1))
+```
+
+
+```{r coefficient-variation-plot-egdeR,fig.cap="**Coefficient of Variation Plots**"}
+plotBCV(d, main="Coefficient of Variation of Unfiltered Counts per Million")
+# fisher exact test
+plotBCV(DGEobj.d, main="Coefficient of Variation of Read Counts per Million")
+```
+
+
+```{r limma-voom-Venn-Diagrams}
+vennDiagram(f.bayes.limma[, 1:4], circle.col = c("orange", "purple"),main=paste("Limma Overlap of Gene Expression for", under, "and", over, "across all Lanes"),include="up",show.include=F,
+            names=colnames(f.bayes.limma))
+
+vennDiagram(f.bayes.voom[, 1:4], circle.col = c("orange", "purple"),main=paste("Voom Overlap of Gene Expression for", under, "and", over, "across all Lanes"),include="up",show.include=F,
+            names=colnames(ebayes.dt))
+```
+
+
+```{r limma-voom-MAplots}
+par(mfrow=c(2,2))
+plotMD(tfit, column = 1, status = f.bayes.limma[, 1],
+       main = paste0("Limma Mean-Difference of Up and Down Regulated Genes in ",
+                     under, sep=""))
+plotMD(tfit, column = 2, status = f.bayes.limma[, 2],
+       main = paste0("Limma Mean-Difference of Up and Down Regulated Genes in ",
+                     over, sep=""))
+
+plotMD(tfit, column = 1, status = f.bayes.voom[, 1],
+       main = paste0("Voom Mean-Difference of Up and Down Regulated Genes in ",
+                     under, sep=""))
+plotMD(tfit, column = 2, status = f.bayes.voom[, 2],
+       main = paste0("Voom Mean-Difference of Up and Down Regulated Genes in ",
+                     over, sep=""))
+par(mfrow=c(1,1))
+```
+
+
+```{r inline-code}
+' r ![KEGG-Pathway-Visualization](/media/drew/easystore/umb_triley/urine1/hsa04062.pathview.png)'
+kegguppathways
+keggdownpathways
+```
+
+```{r gene-ontology-cc-barplots, fig.cap="Gene Ontology Cellular Component Enrichment Analysis"}
+barplot(sigGOcc, drop=TRUE, showCategory=12)+ ggtitle("Significant Differentially Expressed Gene Ontology Cellular Components")
+```
+
+```{r gene-ontology-mf-barplots, fig.cap="Gene Ontology Molecular Function Enrichment Analysis", fig.align='center', fig.show='hold', message=FALSE, warning=FALSE, echo=FALSE}
+barplot(sigGOmf, drop=TRUE, showCategory=12)+ ggtitle("Significant Differentially Expressed Gene Ontology Molecular Functions")
+```
+
+```{r gene-ontology-bp-barplots, fig.cap="Gene Ontology Biological Processes Enrichment Analysis", fig.align='center', fig.show='hold', message=FALSE, warning=FALSE, echo=FALSE}
+barplot(sigGObp, drop=TRUE, showCategory=12)+ ggtitle("Significant Differentially Expressed Gene Ontology Biological Processes")
+```
+
+```{r gene-ontology-analysis-LUTS-bp-plots, fig.cap="Gene Ontology Biological Processes Over Representationa Analysis", fig.align='center', fig.show='hold', message=FALSE, warning=FALSE, echo=FALSE}
+# LUTS Group
+showSigOfNodes(Qvalover.BP.GOdata, score(HIover.BPtKS), firstSigNodes=5,useInfo = "all")
+```
+
+```{r gene-ontology-analysis-LUTS-mf-plots, fig.cap="Gene Ontology Molecular Function Over Representationa Analysis", fig.align='center', fig.show='hold', message=FALSE, warning=FALSE, echo=FALSE}
+# LUTS Group
+showSigOfNodes(Qvalover.MF.GOdata, score(HIover.MFtKS), firstSigNodes=5, useInfo = "all")
+```
+
+
+```{r gene-ontology-analysis-LUTS-cc-plots, fig.cap="Gene Ontology Cellular Component Over Representationa Analysis", fig.align='center', fig.show='hold', message=FALSE, warning=FALSE, echo=FALSE}
+# LUTS Group
+showSigOfNodes(Qvalover.CC.GOdata, score(HIover.CCtKS), firstSigNodes =5, useInfo = "all" )
+```
+
+```{r gene-ontology-analysis-CTRL-bp-plots, fig.cap="Gene Ontology Biological Processes Over Representationa Analysis", fig.align='center', fig.show='hold', message=FALSE, warning=FALSE, echo=FALSE}
+# CTRL Group
+showSigOfNodes(Qvalunder.BP.GOdata, score(HIunder.BPtKS), firstSigNodes=5,useInfo = "all")
+```
+
+```{r gene-ontology-analysis-CTRL-mf-plots, fig.cap="Gene Ontology Molecular Function Over Representationa Analysis", fig.align='center', fig.show='hold', message=FALSE, warning=FALSE, echo=FALSE}
+# CTRL Group
+showSigOfNodes(Qvalunder.MF.GOdata, score(HIunder.MFtKS), firstSigNodes=5, useInfo = "all")
+```
+
+```{r gene-ontology-analysis-CTRL-cc-plots}
+# CTRL Group
+showSigOfNodes(Qvalunder.CC.GOdata, score(HIunder.CCtKS), firstSigNodes =5, useInfo = "all" )
+```
+
+```{r STRINGdb-network-analysis}
+gene.exp.diff<-data.frame(genes=genes_exp.diff$gene_id,
+                          logFC=genes_exp.diff$log2_fold_change,
+                          p_value=genes_exp.diff$p_value,
+                          q_value=genes_exp.diff$q_value)
+
+species.all<-get_STRING_species(version="10", species_name=NULL)
+hsa<-grep(pattern='Homo sapiens', species.all$official_name, ignore.case = T)
+taxa.info<-species.all[hsa,]
+taxID<-taxa.info$species_id
+string.db.hsa<-STRINGdb$new(version="10", species=taxID)
+string.db.hsa
+gene.exp.diff.mapped<-string.db.hsa$map(gene.exp.diff, "genes", removeUnmappedRows = TRUE )
+# enrichment
+gene.exp.diff.de.df<-as.data.frame(cbind(gene=gene.exp.diff.mapped$genes,
+                                         pvalue=gene.exp.diff.mapped$p_value,
+                                         logFC=gene.exp.diff.mapped$logFC), stringsAsFactors=F)
+
+gene.exp.diff.intersected<-string.db.hsa$map(gene.exp.diff.de.df, "gene", removeUnmappedRows=T)
+string.db.hsa$plot_network(gene.exp.diff.intersected$STRING_id[1:25])
+```
+
+
+```{r luts-characteristic-subnets}
+plot(oh.mst.clustering, oh.mst,layout=layout.fruchterman.reingold,
+     edge.curved=TRUE,vertex.size=oh.vSizes, vertex.label.dist=0.6,
+     vertex.label.color="blue", asp=FALSE,vertex.label.cex=0.6,
+     edge.width=oh.edgeweights, edge.arrow.mode=0,
+     main=paste0("Up regulated Genes in the ", over, " Patient Group"))
+```
+
+
+```{r ctrl-characteristic-subnets}
+plot(ol.mst.clustering, ol.mst,layout=layout.fruchterman.reingold,
+     edge.curved=TRUE,vertex.size=ol.vSizes, vertex.label.dist=-0.5,
+     vertex.label.color="black", asp=FALSE,vertex.label.cex=0.6,
+     edge.width=ol.edgeweights, edge.arrow.mode=0,
+     main=paste0("Down regulated Genes in the ", over, " Patient Group"))
+```
+
+```{r gene-ontology-analysis-tables, fig.cap="**Gene Ontology Over Representationa Analysis**"}
+
+kable(overRes.BP, "latex", longtable = T, booktabs = T,
+      caption = paste("This a Table of the Significant Gene Ontology Features at the Biological Process Level for the ", over, "Group")) %>%
+   kable_styling(position = "center")
+
+kable(overRes.MF, "latex", longtable = T, booktabs = T,
+      caption = paste("This a Table of the Significant Gene Ontology Features at the Molecular Function Level for the ", over, "Group")) %>%
+   kable_styling(position = "center")
+
+kable(overRes.CC, "latex", longtable = T, booktabs = T,
+      caption = paste("This a Table of the Significant Gene Ontology Features at the Cellular Component Level for the ", over, "Group")) %>%
+   kable_styling(position = "center")
+
+kable(underRes.BP, "latex", longtable = T, booktabs = T,
+      caption = paste("This a Table of the Significant Gene Ontology Features at the Biological Process Level for the ", under, "Group")) %>%
+   kable_styling(position = "center")
+
+kable(underRes.MF, "latex", longtable = T, booktabs = T,
+      caption = paste("This a Table of the Significant Gene Ontology Features at the Molecular Function Level for the ", under, "Group")) %>%
+   kable_styling(position = "center")
+
+kable(underRes.CC, "latex", longtable = T, booktabs = T,
+      caption = paste("This a Table of the Significant Gene Ontology Features at the Cellular Component Level for the ", under, "Group")) %>%
+   kable_styling(position = "center")
+```
+
+
+```{r edgeR-limma-tailor-overlap-tables}
+sig.lists<-c(c.v.sig_genes.df,c.e.sig_genes.df,c.v.e.sig_genes.df)
+
+kable(sig.lists, "latex", longtable = T, booktabs = T, caption = paste("This a table of all the significant differential expression from each method")) %>%
+   kable_styling(position = "center")
+
+kable(c.v.sig_genes.df, "latex", longtable = T, booktabs = T, caption = paste("This a table of all the significant differential expression identified with the Voom package")) %>%
+   kable_styling(position = "center")
+
+kable(c.e.sig_genes.df, "latex", longtable = T, booktabs = T, caption = paste("This a table of all the significant differential expression identified with the EdgeR package")) %>%
+   kable_styling(position = "center")
+
+kable(c.v.e.sig_genes.df, "latex", longtable = T, booktabs = T, caption = paste("This a table of all the overlapping significant differential expression identified by each method")) %>%
+   kable_styling(position = "center")
+
+dev.off()
+```

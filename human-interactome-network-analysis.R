@@ -1,16 +1,9 @@
 # cyRest workflow 2: Human interactome data integration
-#   Basic workflow to inport and annotate human interactome data set
+# Basic workflow to inport and annotate human interactome data set
 
-
-library(RColorBrewer)
-library(igraph)
-library(RJSONIO)
-library(httr)
-library(biomaRt)
-library(org.Hs.eg.db)
-library(KEGG.db)
-
-# Utilities to use Cytoscape and R
+library(RColorBrewer);library(igraph);library(RJSONIO)
+library(biomaRt);library(org.Hs.eg.db);library(KEGG.db)
+# Utilities to use Cytoscape and R #library(httr)
 source("utility-functions.R")
 
 ########## Network Data Preparation ###########

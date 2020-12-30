@@ -8,19 +8,22 @@ output:
 ---
 
 ```{r}
-#library(gaggle) ;library(predictionet)
-library(graph);library(network);library(graphite)
+#library(gaggle) ;library(predictionet);library(pastecs)
+library(graph);library(graphite)
 library(RITANdata);library(gageData);library(EGSEAdata)
 library(biomaRt);library(ggplot2); library(gplots)
 library(DLBCL);library(pathview);library(AnnotationDbi)
 library(org.Hs.eg.db);library(limma);library(edgeR)
 library(multtest);library(nortest);library(outliers)
 library(igraph);library(tidyverse);library(pvclust)
-library(cummeRbund);library(pastecs);library(psych)
+library(cummeRbund);library(psych)
 library(genefilter);library(Hmisc);library(ellipse)
 library(RColorBrewer);library(VennDiagram)
 library(cummeRbund);library(BioNet)
+```
 
+
+```{r}
 data(go.sets.hs);data(go.subs.hs);data(bods)
 data(interactome);data(dataLym);data(korg)
 data(go.sets.hs);data(go.subs.hs)
@@ -37,14 +40,14 @@ go.mf.sym<-lapply(go.sets.MF, eg2sym)
 go.cc.sym<-lapply(go.sets.CC, eg2sym)
 
 # sequence data
-genome.fa="/media/drew/umb_triley/umb_triley/ReferenceGenomes/UCSC_hg38/genome.fa"
-refgtf="/media/drew/umb_triley/umb_triley/ReferenceGenomes/UCSC_hg38/genes.gtf"
-inDir="/media/drew/umb_triley/umb_triley/urine1/cuffdiff_results_hg38_default/LUTS-over-CTRL"
+genome.fa="/media/drew/easystore/umb_triley/ReferenceGenomes/UCSC_hg38/genome.fa"
+refgtf="/media/drew/easystore/umb_triley/ReferenceGenomes/UCSC_hg38/genes.gtf"
+inDir="/media/drew/easystore/umb_triley/urine1/cuffdiff_results_hg38_default/LUTS-over-CTRL/"
 cuff<-cummeRbund::readCufflinks(dir=inDir,genome=genome.fa,gtfFile=refgtf, rebuild=F)
 
-gtfDir="/media/drew/umb_triley/umb_triley/urine1/cuffcompare_results_hg38_gtf_guided"
+gtfDir="/media/drew/easystore/umb_triley/urine1/cuffcompare_results_hg38_gtf_guided"
 gtffile <- file.path(gtfDir,"cuffcmp.combined.gtf")
-cuffcmp="/media/drew/umb_triley/umb_triley/urine1/cuffcompare_results_hg38_gtf_guided/cuffcmp.combined.gtf"
+cuffcmp="/media/drew/easystore/umb_triley/urine1/cuffcompare_results_hg38_gtf_guided/cuffcmp.combined.gtf"
 mergedgtf <- readGFF(cuffcmp)
 hg38.genes.gtf<-as.data.frame(mergedgtf)
 head(hg38.genes.gtf)
@@ -52,7 +55,7 @@ table(hg38.genes.gtf$seqid)
 novelmerged<-hg38.genes.gtf[which(hg38.genes.gtf["class_code"] != "="),]
 novel.hg38.granges<-makeGRangesFromDataFrame(novelmerged, keep.extra.columns=TRUE)
 hg38.granges<-makeGRangesFromDataFrame(hg38.genes.gtf, keep.extra.columns=TRUE)
-txdb<-makeTxDbFromGFF(file ="/media/drew/umb_triley/umb_triley/urine1/cuffcompare_results_hg38_gtf_guided/cuffcmp.combined.gtf", format="gtf", circ_seqs=character(),organism = "Homo sapiens")
+txdb<-makeTxDbFromGFF(file ="/media/drew/easystore/easystore/umb_triley/urine1/cuffcompare_results_hg38_gtf_guided/cuffcmp.combined.gtf", format="gtf", circ_seqs=character(),organism = "Homo sapiens")
 txdb <- makeTxDbFromGFF(gtffile, format="gtf", circ_seqs=character())
 #load the human Entrez gene identifiers package
 library(org.Hs.eg.db)
@@ -249,11 +252,11 @@ load(url("http://bioinf.wehi.edu.au/software/MSigDB/mouse_c7_v5p2.rdata"))
 
 
 ```{r import-gene-expr}
-genome="/media/drew/umb_triley/umb_triley/Reference-Genomes/Human/UCSC_hg38/genome.fa"
-refgtf="/media/drew/umb_triley/umb_triley/Reference-Genomes/Human/UCSC_hg38/genes.gtf"
-inDir="/media/drew/umb_triley/umb_triley/urine1/cuffdiff_results_hg38_default/LUTS-over-CTRL/"
+genome="/media/drew/easystore/umb_triley/Reference-Genomes/Human/UCSC_hg38/genome.fa"
+refgtf="/media/drew/easystore/umb_triley/Reference-Genomes/Human/UCSC_hg38/genes.gtf"
+inDir="/media/drew/easystore/umb_triley/urine1/cuffdiff_results_hg38_default/LUTS-over-CTRL"
 
-cuff<-readCufflinks(dir=inDir,genome="/media/drew/umb_triley/umb_triley/Reference-Genomes/Human/UCSC_hg38/genome.fa",gtfFile="/media/drew/umb_triley/umb_triley/Reference-Genomes/Human/UCSC_hg38/genes.gtf", rebuild=F)
+cuff<-readCufflinks(dir=inDir,genome="/media/drew/easystore/umb_triley/Reference-Genomes/Human/UCSC_hg38/genome.fa",gtfFile="/media/drew/easystore/umb_triley/Reference-Genomes/Human/UCSC_hg38/genes.gtf", rebuild=F)
 
 replicates.info<-cummeRbund::replicates(cuff)
 replicates.info

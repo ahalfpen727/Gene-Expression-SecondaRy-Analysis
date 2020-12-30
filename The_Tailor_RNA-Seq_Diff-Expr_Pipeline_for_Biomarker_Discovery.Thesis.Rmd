@@ -224,17 +224,8 @@ data(gene.idtype.list);data(gene.idtype.bods)
 data(kegg.met);data(kegg.gs)
 ```
 
-```{r data-and-functions, include=FALSE, message=FALSE, echo=FALSE}
-# Functions
-scale01 <- function(x){(x-min(x))/(max(x)-min(x))}
-#source("https://faculty.ucr.edu/~tgirke/Documents/R_BioCond/My_R_Scripts/GOHyperGAll.txt")
-# sequence data
-genome.fa="/media/drew/easystore/umb_triley/Reference-Genomes/Human/UCSC_hg38/genome.fa"
-refgtf="/media/drew/easystore/umb_triley/Reference-Genomes/Human/UCSC_hg38/genes.gtf"
-inDir="/media/drew/easystore/umb_triley/urine1/cuffdiff_results_hg38_default/LUTS-over-CTRL"
-cuff<-cummeRbund::readCufflinks(dir=inDir,genome=genome.fa,gtfFile=refgtf, rebuild=F)
-#metadata
 
+```{r metadata}
 concord=file.path("/media/drew/easystore/umb_triley/Thesis/Concordant_Mapping.csv")
 overall=file.path("/media/drew/easystore/umb_triley/Thesis/Overall_Mapping.csv")
 concord.map<-read_csv(concord, col_names =c("Samples","concordant.mapping"))
@@ -258,6 +249,18 @@ Read.Cnts<-Read.Counts[-23,]
 read.cnts<-Read.Cnts[-23,]
 rdcnts<-read.cnts[,-4]
 rdcnt.all<-rbind(cnts.in=psych::describe(rdcnts$Read.Count.In/10^6),cnts.out=psych::describe(rdcnts$Read.Count.Out/10^6))
+```
+
+```{r data-and-functions, include=FALSE, message=FALSE, echo=FALSE}
+# Functions
+scale01 <- function(x){(x-min(x))/(max(x)-min(x))}
+#source("https://faculty.ucr.edu/~tgirke/Documents/R_BioCond/My_R_Scripts/GOHyperGAll.txt")
+# sequence data
+genome.fa="/media/drew/easystore/umb_triley/Reference-Genomes/Human/UCSC_hg38/genome.fa"
+refgtf="/media/drew/easystore/umb_triley/Reference-Genomes/Human/UCSC_hg38/genes.gtf"
+inDir="/media/drew/easystore/umb_triley/urine1/cuffdiff_results_hg38_default/LUTS-over-CTRL"
+cuff<-cummeRbund::readCufflinks(dir=inDir,genome=genome.fa,gtfFile=refgtf, rebuild=F)
+
 scrs=file.path("/media/drew/easystore/umb_triley/urine1/Sample-Library-Preparation/MichiganUrineSpecimensAUASIscores.csv")
 AUASI<-read_csv(scrs,trim_ws = T,col_names = TRUE)
 AUASI.df<-AUASI %>%
@@ -287,7 +290,7 @@ row.names(design) <- replicates.df$rep_name
 contr.matrix <- makeContrasts(CTRL-LUTS, levels=design)
 auasi.df="/media/drew/easystore/umb_triley/Thesis/AUASI.df.txt"
 auasi.file = file.path(auasi.df)
-write.table(AUASI.df,file = auasi.file, sep = "  ", row.names = F, col.names = T,quote = F)
+#write.table(AUASI.df,file = auasi.file, sep = "  ", row.names = F, col.names = T,quote = F)
 
 gtfDir="/media/drew/easystore/umb_triley/urine1/cuffcompare_results_hg38_gtf_guided"
 gtffile <- file.path(gtfDir,"cuffcmp.combined.gtf")
@@ -373,10 +376,10 @@ s.g.l.rep.matrix<-s.g.l.rep.matrix[,under.group]
 
 s.g.h.rep.matrix<-s.g.h.rep.matrix[,c(1:9)]
 s.g.l.rep.matrix<-s.g.l.rep.matrix[,c(1:9)]
-upgenes<-file.path("/media/drew/easystore/umb_triley/Thesis/sig_up_genes.csv")
-write_lines(row.names(s.g.h.rep.matrix),path = upgenes)
-downgenes<-file.path("/media/drew/easystore/umb_triley/Thesis/sig_down_genes.csv")
-write_lines(row.names(s.g.l.rep.matrix), path = downgenes)
+#upgenes<-file.path("/media/drew/easystore/umb_triley/Thesis/sig_up_genes.csv")
+#write_lines(row.names(s.g.h.rep.matrix),path = upgenes)
+#downgenes<-file.path("/media/drew/easystore/umb_triley/Thesis/sig_down_genes.csv")
+#write_lines(row.names(s.g.l.rep.matrix), path = downgenes)
 #Create a graph adjacency based on correlation distances between genes in  pairwise fashion.
 oh.graph <- graph.adjacency(as.matrix(as.dist(cor(t(s.g.h.rep.matrix),method="pearson"))),
                               mode="undirected", weighted=TRUE, diag=T)
@@ -578,12 +581,15 @@ kegguppathways <- data.frame(id=rownames(keggres$greater), keggres$greater) %>%
    filter(row_number()<=15) %>%
    .$id %>%
    as.character()
+kegguppathways
 
 keggdownpathways <- data.frame(id=rownames(keggres$less), keggres$less) %>%
   tbl_df() %>%
    filter(row_number()<=15) %>%
    .$id %>%
    as.character()
+keggdownpathways
+
 keggupsids <- substr(kegguppathways, start=1, stop=8)
 keggdownsids <- substr(keggdownpathways, start=1, stop=8)
 # plot multiple pathways (plots saved to disk and returns a throwaway list object)
@@ -687,7 +693,6 @@ dotplot(gobp, orderBy="Count", showCategory = 25,color="p.adjust", x="GeneRatio"
 
 dotplot(gomf, orderBy="Count", showCategory = 25, color="p.adjust", x="GeneRatio",
         title="Gene Ontology Dotplot of Molecular Functions")
-
 ```
 
 ```{r limma-linear-models, message=FALSE, warning=FALSE, echo=FALSE}

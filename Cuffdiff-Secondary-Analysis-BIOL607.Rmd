@@ -9,25 +9,40 @@ editor_options:
 
 
 ```{r library-load, message=FALSE, warning=FALSE}
-library(knitr);library(car);library(RColorBrewer)
-library(VennDiagram);library(ggplot2);library(gplots)
-library(gridExtra);library(stats4);library(stats)
-library(limma);library(multtest);library(edgeR)
-library(cummeRbund);library(outliers);library(nortest)
-#biocM(c("car", "VennDiagram","nortest"))
-library(genefilter);library(qvalue)
+library(limma);library(edgeR);library(cummeRbund);library(genefilter)
+library(ggplot2);library(gplots);library(stats4);library(stats)
+library(tidyverse);library(RColorBrewer);library(VennDiagram)
+library(multtest);library(outliers);library(nortest)
+library(qvalue);library(car);library(org.Hs.eg.db)
+library(biomaRt)
+# Functions
+#scale01 <- function(x){(x-min(x))/(max(x)-min(x))}
+#source("https://faculty.ucr.edu/~tgirke/Documents/R_BioCond/My_R_Scripts/GOHyperGAll.txt")
+# sequence data
+genome.fa="/media/drew/easystore/umb_triley/Reference-Genomes/Human/UCSC_hg38/genome.fa"
+refgtf="/media/drew/easystore/umb_triley/Reference-Genomes/Human/UCSC_hg38/genes.gtf"
+inDir="/media/drew/easystore/umb_triley/urine1/cuffdiff_results_hg38_default/LUTS-over-CTRL"
+scrs=file.path("/media/drew/easystore/umb_triley/urine1/Sample-Library-Preparation/MichiganUrineSpecimensAUASIscores.csv")
+lanes<-read_csv(file="/media/drew/easystore/umb_triley/urine1/Sample-Library-Preparation/lane-and-sample-numbers.csv", col_names = T,trim_ws = T)
+pool<-read_delim(file="/media/drew/easystore/umb_triley/urine1/Sample-Library-Preparation/Pool-A-and-Pool-B-barcode-summary.csv", col_names = c("sample.number","NuGene.Adapter.Num", "barcode.seq","lanes"), trim_ws = T,  delim=",")
+gtfDir="/media/drew/easystore/umb_triley/urine1/cuffcompare_results_hg38_gtf_guided"
+gtffile <- file.path(gtfDir,"cuffcmp.combined.gtf")
+cuffcmp="/media/drew/easystore/umb_triley/urine1/cuffcompare_results_hg38_gtf_guided/cuffcmp.combined.gtf"
+AUASI<-read_csv(scrs,trim_ws = T,col_names = TRUE)
+AUASI.df<-AUASI %>%
+   mutate(Sample.Num = paste("Sample", Samples, sep="_"))
+# run data
+lane<-as.factor(pool$lanes)
+
 ```
 
 ## RNA-Seq data from the Center for Personalized Cancer Therapy
 > In an effort to identify biomarkers of disease the genomics core has begun performing comparitive RNA-Seq analyses. This project represents an effort to differentiate benign prostate hyperplasia from prostate cancer and identify causitive features from gene expression data
 
-```{r import-gene-expr-data, message=FALSE, warning=FALSE}
-knitr::opts_chunk$set(comment = NA, message = FALSE, warnings = FALSE)
-cuff<- readCufflinks(dir='/media/drew/easystore/umb_triley/urine1/cuffdiff_results_hg38_default/LUTS-over-CTRL/',genome="hg38",gtfFile='/media/drew/easystore/ReferenceGenomes/UCSC_hg38/genes.gtf', rebuild=F)
+```{r import-gene-expr-data}
+cuff<- readCufflinks(dir='/media/drew/easystore/umb_triley/urine1/cuffdiff_results_hg38_default/LUTS-over-CTRL/',genome="hg38",gtfFile='/media/drew/easystore/ReferenceGenomes/UCSC_hg38/genes.gtf',rebuild=F)
 cuff
 replicates.info<-cummeRbund::replicates(cuff)
-replicates.info
-
 groups<-replicates.info$sample_name
 samples<-replicates.info$rep_name
 conditions<-as.factor(groups)
@@ -38,131 +53,70 @@ groups
 under=groups[1]
 over=groups[((length(groups)/2)+1)]
 over;under
-# design matrix
-design <- model.matrix(~0 + groups, data=replicates.info)
-colnames(design) <- levels(conditions)
-row.names(design) <- samples
-design
-# contrast matrix
-contr.matrix <- makeContrasts(lutsVSctrl = CTRL - LUTS,
-                              levels = colnames(design))
-contr.matrix
 
-# gene expr data
-genes_exp.df<-diffData(cummeRbund::genes(cuff))
-sig.genes_exp.df<-subset(genes_exp.df, genes_exp.df$significant=="yes")
-
-#all_exp.df<-diffTable(cummeRbund::genes(cuff))
-g.cnt.matrix<-repCountMatrix(cummeRbund::genes(cuff))
-# factors for conditions
-under.group<-grep(pattern=under, colnames(g.cnt.matrix))
-over.group<-grep(pattern=over, colnames(g.cnt.matrix))
-str(g.cnt.matrix[under.group])
-
-colSums( g.cnt.matrix ) # Library Sizes
-colSums( g.cnt.matrix ) / 1e06 # Library Sizes in millions of reads
-
-```
-
-```{r data-initialize, fig.margin=TRUE, message=FALSE, warning=FALSE, echo=FALSE}
-Lane.factor <- as.factor(lanes$Lane)
-replicate.info<-cummeRbund::replicates(cuff)
-cuffdir<-dirname(replicate.info$file)
-sample_number<-basename(cuffdir)
-replicates.info<-replicate.info[-1]
-replicates.info$sample_number<-basename(cuffdir)
-replicates.info$lanes<-c("L1T4","L1T4","L1T4","L5T8","L5T8","L5T8","L1T4","L5T8","L5T8","L1T4","L1T4","L1T4","L5T8","L5T8","L1T4","L1T4","L5T8","L5T8")
 lane.info<-replicates.info$lanes
 lanes <- as.factor(lane.info)
+cuffdir<-dirname(replicates.info$file)
+replicates.info$sample_number<-basename(cuffdir)
 replicates.info$sample_number <- gsub("_out","",replicates.info$sample_number)
+replicate.df<-merge(replicates.info, pool, by.x="sample_number",by.y="sample.number")
+replicates.df<-merge(replicate.df, AUASI.df, by.x="sample_number",by.y="Sample.Num")
+replicates.df<-replicates.df[,-2,-8]
+replicates.info$lanes<-c("L1T4","L1T4","L1T4","L5T8","L5T8","L5T8","L1T4","L5T8","L5T8","L1T4","L1T4","L1T4","L5T8","L5T8","L1T4","L1T4","L5T8","L5T8")
 replicates.info<-replicates.info %>%
    mutate(batch.effects = paste(sample_name, lanes, sep="_"))
 batcheffects <- as.factor(replicates.info$batch.effects)
 replicates.info
-groups<-replicates.info$sample_name
-samples<-replicates.info$rep_name
-under=groups[1]
-over=groups[((length(groups)/2)+1)]
-conditions <- as.factor(groups)
-sampleCondition<-c(rep(under,length(groups)/2),rep(over,length(groups)/2))
-# design matrix \
-#design.sample <- model.matrix(~0 + rep_name, data=replicates.info)
-design <- model.matrix(~0 + batcheffects, data=replicates.info)
-row.names(design) <- samples
-# contrast matrix
-contr.matrix <- makeContrasts(CTRL_L1T4 - CTRL_L5T8, CTRL_L5T8 - LUTS_L1T4, LUTS_L1T4 - LUTS_L5T8, 
-                              levels = c("CTRL_L1T4", "CTRL_L5T8", "LUTS_L1T4", "LUTS_L5T8"))
-# gene expr data
-cuff_annotation_data<-featureNames(cuff@genes)
-gene_exp.diff<-diffData(cummeRbund::genes(cuff))
-# reformat all_exp
-sig_genes.df<-subset(gene_exp.diff, gene_exp.diff$significant=="yes")
-g.cnt.df<-repCountMatrix(cummeRbund::genes(cuff))
-# gene expr data
-g.cnt.ma<-repCountMatrix(cummeRbund::genes(cuff))
-# factors for conditions
-under.group<-grep(pattern=under, colnames(g.cnt.ma))
-over.group<-grep(pattern=over, colnames(g.cnt.ma))
+grp.factor<-c(rep(0,9),rep(1,9))
+grp.fac<-factor(grp.factor, levels=0:1, labels=c(under, over))
 
+# gene expr data
+all_exp.df<-diffTable(cummeRbund::genes(cuff))
+cuff_annotation_data<-featureNames(cuff@genes)
+genes_exp.diff<-diffData(cummeRbund::genes(cuff))
+g.cnt.df<-repCountMatrix(cummeRbund::genes(cuff))
+g.cnt.ma<-repCountMatrix(cummeRbund::genes(cuff))
 g.count.df=as.data.frame(g.cnt.df)
 g.count.ma=as.matrix(g.cnt.ma)
-# get entrez ids
-g.count.df$EntrezID <- mapIds(org.Hs.eg.db,
-                              keys=rownames(g.count.df),
-                              column="ENTREZID",keytype="SYMBOL",
-                              multiVals="first")
 # filter NAs
+g.count.ma<-subset(g.count.ma,!is.na(row.names(g.count.ma)))
 g.count.df<-subset(g.count.df,!is.na(row.names(g.count.df)))
-# get go ids
-g.count.df$GOid <- mapIds(org.Hs.eg.db,
-                          keys=rownames(g.count.df),
-                          column="GO",keytype="SYMBOL",
-                          multiVals="first")
-
-inds <- which(!is.na(g.count.df$GOid) & !is.na(g.count.df$EntrezID))
+inds <- which(!is.na(g.count.df))
+#inds <- which(!is.na(g.count.df$GOid) & !is.na(g.count.df$EntrezID))
 # factors for conditions
 g.count.df<-g.count.df[inds,]
 g.cnt.df<-g.cnt.df[inds,]
 g.cnt.ma<-g.cnt.ma[inds,]
-
-under.group<-grep(pattern=under, colnames(g.cnt.df))
-over.group<-grep(pattern=over, colnames(g.cnt.df))
-
-g.o.cnt.df<-g.cnt.df[,over.group]
-g.u.cnt.df<-g.cnt.df[,under.group]
-
+# factors for matrices and data frames
+under.group<-grep(pattern=under, colnames(g.cnt.ma))
+over.group<-grep(pattern=over, colnames(g.cnt.ma))
+under.grp<-grep(pattern=under, colnames(g.cnt.df))
+over.grp<-grep(pattern=over, colnames(g.cnt.df))
+# significant gene expression
 mySigGenes<-getSig(cuff,x=over,y=under,alpha=.05,level='genes')
 sigGenes<-getGenes(cuff, mySigGenes)
-sig.genes.exp.diff<-diffData(sigGenes)
-sig_genes_exp.diff<-subset(sig.genes.exp.diff,
-                           abs(sig.genes.exp.diff$log2_fold_change) > 4 &
-                         sig.genes.exp.diff$q_value < 0.01)
-ma<-max(sig_genes_exp.diff$log2_fold_change[is.finite(sig_genes_exp.diff$log2_fold_change)])
-mi<-min(sig_genes_exp.diff$log2_fold_change[is.finite(sig_genes_exp.diff$log2_fold_change)])
-sig_genes_exp.diff$log2_fold_change<-replace(sig_genes_exp.diff$log2_fold_change, sig_genes_exp.diff$log2_fold_change == "Inf", ma)
-sig_genes_exp.diff$log2_fold_change<-replace(sig_genes_exp.diff$log2_fold_change, sig_genes_exp.diff$log2_fold_change == "-Inf", mi)
+sig_genes.df<-diffData(sigGenes)
+sig_genes.df<-subset(genes_exp.diff, genes_exp.diff$significant=="yes")
 
-ma<-max(gene_exp.diff$log2_fold_change[is.finite(gene_exp.diff$log2_fold_change)])
-mi<-min(gene_exp.diff$log2_fold_change[is.finite(gene_exp.diff$log2_fold_change)])
-gene_exp.diff$log2_fold_change<-replace(gene_exp.diff$log2_fold_change, gene_exp.diff$log2_fold_change == "Inf", ma)
-gene_exp.diff$log2_fold_change<-replace(gene_exp.diff$log2_fold_change, gene_exp.diff$log2_fold_change == "-Inf", mi)
+ma<-max(genes_exp.diff$log2_fold_change[is.finite(genes_exp.diff$log2_fold_change)])
+mi<-min(genes_exp.diff$log2_fold_change[is.finite(genes_exp.diff$log2_fold_change)])
+genes_exp.diff$log2_fold_change<-replace(genes_exp.diff$log2_fold_change,
+                                        genes_exp.diff$log2_fold_change == "Inf", ma)
+genes_exp.diff$log2_fold_change<-replace(genes_exp.diff$log2_fold_change,
+                                        genes_exp.diff$log2_fold_change == "-Inf", mi)
 
-sig.cnt.df<-g.cnt.df[which(row.names(g.cnt.df) %in% sig_genes_exp.diff$gene_id),]
+sig_genes_exp.df<-subset(sig_genes.df,
+                           abs(sig_genes.df$log2_fold_change) > 1 & sig_genes.df$q_value < 0.05)
+sig.h.genes_exp.diff<-subset(sig_genes_exp.df,
+                             sig_genes_exp.df$log2_fold_change > 1 & sig_genes_exp.df$q_value < 0.05)
 
-sig.g.o.cnt.df<-sig.cnt.df[,over.group]
-sig.g.u.cnt.df<-sig.cnt.df[,under.group]
+sig.l.genes_exp.diff<-subset(sig_genes_exp.df,
+                             sig_genes_exp.df$log2_fold_change < 0 & sig_genes_exp.df$q_value < 0.05)
 
-sig.h.genes_exp.diff<-subset(sig_genes_exp.diff,
-                             sig_genes_exp.diff$log2_fold_change > 2 & sig_genes_exp.diff$q_value < 0.05)
-
-sig.l.genes_exp.diff<-subset(sig_genes_exp.diff,
-                             sig_genes_exp.diff$log2_fold_change < 0 & sig_genes_exp.diff$q_value < 0.05)
-
-s.g.h.rep.matrix<-g.cnt.df[which(row.names(g.cnt.df) %in% sig.h.genes_exp.diff$gene_id),]
-s.g.l.rep.matrix<-g.cnt.df[which(row.names(g.cnt.df) %in% sig.l.genes_exp.diff$gene_id),]
-
-s.g.h.rep.matrix<-g.cnt.df[which(row.names(g.cnt.df) %in% sig.h.genes_exp.diff$gene_id),]
-s.g.l.rep.matrix<-g.cnt.df[which(row.names(g.cnt.df) %in% sig.l.genes_exp.diff$gene_id),]
+s.g.h.rep.matrix<-g.cnt.df[which(row.names(g.cnt.ma) %in% sig.h.genes_exp.diff$gene_id),]
+s.g.l.rep.matrix<-g.cnt.df[which(row.names(g.cnt.ma) %in% sig.l.genes_exp.diff$gene_id),]
+sig.g.o.cnt.df<-g.cnt.df[which(row.names(g.cnt.df) %in% sig.h.genes_exp.diff$gene_id),]
+sig.g.u.cnt.df<-g.cnt.df[which(row.names(g.cnt.df) %in% sig.l.genes_exp.diff$gene_id),]
 
 over.grp.h.fpkm.ma<-s.g.h.rep.matrix[,over.group]
 over.grp.l.fpkm.ma<-s.g.l.rep.matrix[,over.group]
@@ -170,88 +124,54 @@ over.grp.l.fpkm.ma<-s.g.l.rep.matrix[,over.group]
 under.grp.l.fpkm.ma<-s.g.h.rep.matrix[,under.group]
 under.grp.h.fpkm.ma<-s.g.l.rep.matrix[,under.group]
 
-library(tree); library(rpart.plot); library(rpart)
-
-tree1 <- tree(over.group ~ under.group, data = g.cnt.ma)
-summary(tree1)
-tree(formula = Species ~ Sepal.Width + Petal.Width, data = iris)
-plot(tree1)
-text(tree1)
+#sig.cnt.df<-g.cnt.df[which(row.names(g.cnt.df) %in% sig_genes_exp.df$gene_id),]
 ```
 
-```{r filtering-data}
-library(edgeR)
-d <- DGEList(counts = g.cnt.ma, group=groups)
-no_norm <- estimateCommonDisp(d)
-#perform the DE test
-no_norm<- exactTest(no_norm)
-summary(decideTestsDGE(no_norm, p.value=0.01))
-topTags(no_norm)
-summary(decideTestsDGE(no_norm,p.value=0.05))
-com = summary(decideTestsDGE(no_norm,p.value=0.05))
-sink("de_common_dispersion.txt")
-topTags(no_norm,n=length(groups))
-sink()
- 
-getPriorN(d)
-d <- estimateTagwiseDisp(d, prop.used=0.5, grid.length=500)
-png(file="tgw_disp_vs_log_conc.png", height=1200, width=1200)
-plot(log2(d$conc$conc.common),d$tagwise.dispersion,panel.first=grid())
-abline(h=d$common.dispersion,col="dodgerblue",lwd=3)
-dev.off()
-de.tgw <- exactTest(d)
-topTags(de.tgw)
-summary(decideTestsDGE(de.tgw, p.value=0.01))
-summary(decideTestsDGE(de.tgw, p.value=0.05))
-bob = summary(decideTestsDGE(de.tgw,p.value=0.05))
-total = bob[1] + bob[3]
- 
-sink("de_tagwise_dispersion.txt")
-topTags(de.tgw,n=total)
-#how many differentially expressed transcripts?
-table(p.adjust(de$table$PValue<0.01))
-d <- calcNormFactors(d)
-d <- estimateCommonDisp(d, verbose=T)
-#Disp = 0.01932 , BCV = 0.139
-d <- estimateTagwiseDisp(d)
-d
-#the range of values for the tagwise dispersion
-summary(d$tagwise.dispersion)
-TMM <- calcNormFactors(d, method="TMM")
-TMM <- estimateCommonDisp(TMM)
-TMM <- exactTest(TMM)
-table(p.adjust(TMM$table$PValue<0.01))
-RLE <- calcNormFactors(d, method="RLE")
-RLE
-RLE <- estimateCommonDisp(RLE)
-RLE <- exactTest(RLE)
-table(p.adjust(RLE$table$PValue<0.05))
-uq <- calcNormFactors(d, method="upperquartile")
-uq
-uq <- estimateCommonDisp(uq)
-uq <- exactTest(uq)
-uq
-table(p.adjust(uq$table$PValue<0.01))
-library(gplots)
- 
-get_de <- function(x, pvalue){
-  my_i <- p.adjust(x$PValue<pvalue,method = "BH")
-  row.names(x)[my_i]
-}
- 
-my_de_no_norm <- get_de(no_norm$table, 0.05)
-my_de_tmm <- get_de(TMM$table, 0.05)
-my_de_rle <- get_de(RLE$table, 0.05)
-my_de_uq <- get_de(uq$table, 0.05)
- 
-gplots::venn(list(no_norm = my_de_no_norm, TMM = my_de_tmm, RLE = my_de_rle, UQ = my_de_uq))
-gplots::venn(list(TMM = my_de_tmm, RLE = my_de_rle, UQ = my_de_uq))
+```{r simple-design-matrix-initialize}
+replicates.info;replicates.df
+replicates.info$group<-replicates.info$sample_name
+design <- model.matrix(~group-1, data=replicates.info)
+row.names(design) <- samples
+# contrast matrix
+#contr.matrix <- makeContrasts(lutsVSctrl = "groupCTRL" - "groupLUTS",
+#                              levels = row.names(design))
+#contr.matrix
+```
 
-#plotting my log2 mean expression against edgeR's calculation
-plot(d$AveLogCPM, log2(mock_mean), pch='.')## filter the data enough to perform Shapiro-Wilk normality test
-keep.cpm <- rowSums(cpm(g.cnt.matrix) > 1) >= (length(groups)/2)
+
+```{r batch-effect-design-matrix-initialize}
+# design matrix 
+#design.sample <- model.matrix(~0 + rep_name, data=replicates.info)
+design <- model.matrix(~0 + batcheffects, data=replicates.info)
+row.names(design) <- samples
+# contrast matrix
+contr.matrix <- makeContrasts(CTRL_L1T4 - CTRL_L5T8, CTRL_L5T8 - LUTS_L1T4, LUTS_L1T4 - LUTS_L5T8, 
+                              levels = c("CTRL_L1T4", "CTRL_L5T8", "LUTS_L1T4", "LUTS_L5T8"))
+
+# design matrix 
+design.sample <- model.matrix(~0 + rep_name, data=replicates.info)
+design <- model.matrix(~0 + batcheffects, data=replicates.info)
+row.names(design) <- samples
+design
+contr.matrix
+```
+
+```{r f-test-for-normally-distributed-diff-expr-data}
+g.cnt.ma<-g.cnt.df[row.names(g.count.df),]
+# Classic Approach without filtering
+d<- DGEList(counts=g.cnt.ma, group=factor(groups), remove.zeros=TRUE,genes = row.names(g.cnt.ma))
+g.CPM.ma <- cpm(d, prior.count=1)
+g.LCPM.ma <- cpm(d, log=TRUE, prior.count=1)
+## filter genes with less than 1 cpm in at least 9 samples
+keep.exprs <- rowSums(d$counts > 1) >= length(colnames(g.cnt.df))/2
+table(keep.exprs)
+# Subset the rows of countdata to keep the more highly expressed genes
+g.f.LCPM.ma <- as.data.frame(g.LCPM.ma[keep.exprs,])
+
+## filter the data enough to perform Shapiro-Wilk normality test
+keep.cpm <- rowSums(cpm(g.cnt.df) > 1) >= (length(colnames(g.cnt.df)/2))
 table(keep.cpm)
-g.f.cnt.ma <- g.cnt.matrix[keep.cpm,]
+g.f.cnt.ma <- g.cnt.ma[keep.cpm,]
 
 # Test normality
 norm.1st.group<-apply(g.f.cnt.ma[1:round(nrow(g.f.cnt.ma)/3),], 1, function(x) shapiro.test(x)$p.value)
@@ -288,43 +208,81 @@ length(g.cnt.f.pvals)
 length(g.cnt.t.pvals)
 ```
 
-```{r limma-model-failure}
-Lane.factor <- as.factor(lanes$Lane)
-replicate.info<-cummeRbund::replicates(cuff)
-cuffdir<-dirname(replicate.info$file)
-sample_number<-basename(cuffdir)
-replicates.info<-replicate.info[-1]
-replicates.info$sample_number<-basename(cuffdir)
-replicates.info$lanes<-c("L1T4","L1T4","L1T4","L5T8","L5T8","L5T8","L1T4","L5T8","L5T8","L1T4","L1T4","L1T4","L5T8","L5T8","L1T4","L1T4","L5T8","L5T8")
-lane.info<-replicates.info$lanes
-lanes <- as.factor(lane.info)
-replicates.info$sample_number <- gsub("_out","",replicates.info$sample_number)
-replicates.info<-replicates.info %>%
-   mutate(batch.effects = paste(sample_name, lanes, sep="_"))
-batcheffects <- as.factor(replicates.info$batch.effects)
 
-groups<-replicates.info$sample_name
-samples<-replicates.info$rep_name
-under=groups[1]
-over=groups[((length(groups)/2)+1)]
-conditions <- as.factor(groups)
-sampleCondition<-c(rep(under,length(groups)/2),rep(over,length(groups)/2))
-# design matrix \
-#design.sample <- model.matrix(~0 + rep_name, data=replicates.info)
-design <- model.matrix(~0 + batcheffects, data=replicates.info)
-row.names(design) <- samples
-# contrast matrix
-contr.matrix <- makeContrasts(CTRL_L1T4 - CTRL_L5T8, CTRL_L5T8 - LUTS_L1T4, LUTS_L1T4 - LUTS_L5T8, 
-                              levels = c("CTRL_L1T4", "CTRL_L5T8", "LUTS_L1T4", "LUTS_L5T8"))
+
+```{r edgeR-data-filtering-and-diff-expr}
+library(edgeR)
 dgel<- DGEList(counts=g.cnt.ma, group=factor(lanes))
-
 dgel<- DGEList(counts=g.cnt.ma, group=batcheffects)
+
+no_norm <- estimateCommonDisp(dgel)
+#perform the DE test
+no_norm<- exactTest(no_norm)
+summary(decideTestsDGE(no_norm, p.value=0.01))
+topTags(no_norm)
+summary(decideTestsDGE(no_norm,p.value=0.05))
+com = summary(decideTestsDGE(no_norm,p.value=0.05))
+sink("de_common_dispersion.txt")
+topTags(no_norm,n=length(groups))
+sink()
+ 
+getPriorN(dgel)
+dgel <- estimateTagwiseDisp(dgel, prop.used=0.5, grid.length=500)
+png(file="tgw_disp_vs_log_conc.png", height=1200, width=1200)
+plot(log2(dgel$conc$conc.common),dgel$tagwise.dispersion,panel.first=grid())
+abline(h=dgel$common.dispersion,col="dodgerblue",lwd=3)
+de.tgw <- exactTest(dgel)
+topTags(de.tgw)
+summary(decideTestsDGE(de.tgw, p.value=0.01))
+summary(decideTestsDGE(de.tgw, p.value=0.05))
+bob = summary(decideTestsDGE(de.tgw,p.value=0.05))
+total = bob[1] + bob[3]
+ 
+sink("de_tagwise_dispersion.txt")
+topTags(de.tgw,n=total)
+#how many differentially expressed transcripts?
+table(p.adjust(dgel$table$PValue<0.01))
+dgel <- calcNormFactors(dgel)
+dgel <- estimateCommonDisp(dgel, verbose=T)
+#Disp = 0.01932 , BCV = 0.139
+dgel <- estimateTagwiseDisp(dgel)
 dgel
-library(tree); library(rpart.plot); library(rpart)
-tree1 <- tree(over.group ~ under.group, data = as.data.frame(dgel$counts))
-summary(tree1)
-plot(tree1)
-text(tree1)
+#the range of values for the tagwise dispersion
+summary(dgel$tagwise.dispersion)
+TMM <- calcNormFactors(dgel, method="TMM")
+TMM <- estimateCommonDisp(TMM)
+TMM <- exactTest(TMM)
+table(p.adjust(TMM$table$PValue<0.01))
+RLE <- calcNormFactors(dgel, method="RLE")
+RLE
+RLE <- estimateCommonDisp(RLE)
+RLE <- exactTest(RLE)
+table(p.adjust(RLE$table$PValue<0.05))
+uq <- calcNormFactors(dgel, method="upperquartile")
+uq
+uq <- estimateCommonDisp(uq)
+uq <- exactTest(uq)
+uq
+table(p.adjust(uq$table$PValue<0.01))
+
+get_de <- function(x, pvalue){
+  my_i <- p.adjust(x$PValue<pvalue,method = "BH")
+  row.names(x)[my_i]
+}
+ 
+my_de_no_norm <- get_de(no_norm$table, 0.05)
+my_de_tmm <- get_de(TMM$table, 0.05)
+my_de_rle <- get_de(RLE$table, 0.05)
+my_de_uq <- get_de(uq$table, 0.05)
+ 
+gplots::venn(list(no_norm = my_de_no_norm, TMM = my_de_tmm, RLE = my_de_rle, UQ = my_de_uq))
+gplots::venn(list(TMM = my_de_tmm, RLE = my_de_rle, UQ = my_de_uq))
+
+#plotting my log2 mean expression against edgeR's calculation
+#plot(d$AveLogCPM, log2(mock_mean), pch='.')
+```
+
+```{r limma-model-failure}
 
 #dge.norm <- calcNormFactors(dgel)
 log2.cpm <- voom(dgel,design,plot=FALSE)
@@ -341,7 +299,7 @@ qqt(fit.bayes$t[,2],df=fit.bayes$df.residual+fit.bayes$df.prior)
 
 
 ```{r edgeR-filtered-Diff-Expr}
-dgeObj <- DGEList(counts=g.cnt.matrix, group=groups)
+dgeObj <- DGEList(counts=g.cnt.ma, group=groups)
 disp <- estimateDisp(dgeObj,design)
 plotBCV(disp, main="CV^2 as a Function of Counts/Million Mapped Reads")
 levels(disp$samples$group)
@@ -358,7 +316,7 @@ str(logcounts)
 keep.exprs <- rowSums(logcounts > 1) >= length(groups)/2
 table(keep.exprs)
 # Subset the rows of countdata to keep the more highly expressed genes
-g.f.cnt.ma <- g.cnt.matrix[keep.exprs,]
+g.f.cnt.ma <- g.cnt.ma[keep.exprs,]
 plotMeanVar(disp)
 DGEobj.f=DGEList(g.f.cnt.ma,group=groups)
 f.disp <- estimateDisp(DGEobj.f,design)
@@ -507,9 +465,6 @@ length(de.common)
  #head(tfit$genes$SYMBOL[de.common], n = 20)
 vennDiagram(f.bayes.dt[, 1:2], circle.col = c("orange", "purple"),main=paste("Venn Diagram of the overlapping gene expression between", over, "and", under))
 
-
-
-
 vennDiagram(results)
 vennDiagram(sig.fit.bayes[, 1:2], circle.col = c("orange", "purple"),main=paste("Venn Diagram of the overlapping gene expression between", over, "and", under))
 
@@ -529,13 +484,13 @@ vennDiagram(sig.fit.bayes[, 1:2], circle.col = c("orange", "purple"),main=paste(
 
 ```{r limma}
 ### P-values for moderated statistics with limma
-g.cnt.fit.lm = lmFit(g.cnt.matrix,design)
+g.cnt.fit.lm = lmFit(g.cnt.ma,design)
 g.cnt.fit.lm
 g.cnt.ebayes.lm = eBayes(g.cnt.fit.lm)
 str(g.cnt.ebayes.lm)
 plot(g.cnt.ebayes.lm$p.value)
 sum(g.cnt.ebayes.lm$F.p.value < 0.01)
-g.cnt.lm.pvals = topTable(g.cnt.ebayes.lm, number=dim(g.cnt.matrix)[1])$P.Value
+g.cnt.lm.pvals = topTable(g.cnt.ebayes.lm, number=dim(g.cnt.ma)[1])$P.Value
 hist(g.cnt.lm.pvals, col=4)
 
 fp_bonf = p.adjust(g.cnt.ebayes.lm$p.value,method="bonferroni")
@@ -546,7 +501,7 @@ quantile(fp_bh)
 hist(fp_bonf,col=3)
 
 ### Adjusted p-values from limma
-g.cnt.lm.pvals_adj= topTable(g.cnt.ebayes.lm,number=dim(g.cnt.matrix)[1])$P.Value
+g.cnt.lm.pvals_adj= topTable(g.cnt.ebayes.lm,number=dim(g.cnt.ma)[1])$P.Value
 hist(g.cnt.lm.pvals_adj,col=2)
 quantile(g.cnt.lm.pvals_adj)
 ### Direct q-values
@@ -588,20 +543,18 @@ summary(g.cng.gvmodel)
 Often when you permute you are trying to calculate an empirical p-value. To do this we can compare each observed statistic to the permuted statistics. You can either compare within a single gene (argument `pooled=FALSE` in the `empPvals` function) or pooling the permuted statistics across multiple genes (argument `pooled=TRUE` in the `empPvals` function, the default). 
 
 ```{r f-tests}
-g.l2.cnt.ma = log2(as.matrix(g.cnt.matrix) +1) >= ((length(groups)/2)+1)
+g.l2.cnt.ma = log2(as.matrix(g.cnt.df) +1) >= ((length(groups)/2)+1)
 str(g.l2.cnt.ma)
-g.cnt.ma = g.cnt.data[rowMeans(g.cnt.data) > 1,]
-((length(groups)/2)+1)]
+g.cnt.ma = g.cnt.df[rowMeans(g.cnt.df) > 1,]
 ## Calculate p-values parametrically
-g.cnt.fstats = rowFtests(as.matrix(g.f.cnt.ma), as.factor(groups))
-g.cnt.tstats = rowttests(as.matrix(g.f.cnt.ma), as.factor(groups))
+g.cnt.fstats = rowFtests(as.matrix(g.cnt.df), as.factor(groups))
+g.cnt.tstats = rowttests(as.matrix(g.cnt.df), as.factor(groups))
 g.cnt.f.pvals<-g.cnt.fstats$p.value
 g.cnt.t.pvals<-g.cnt.tstats$p.value
-sig.g.f.cnt.ma<-g.f.cnt.ma[g.cnt.f.pvals < 0.05,]
+sig.g.f.cnt.ma<-g.cnt.ma[g.cnt.f.pvals < 0.05,]
 
-g.cnt.f_bh <- filtered_(g.cnt.f.pvals, method="BH",
-
-g.cnt.vars <- rowVars(g.cnt.ma,factor(groups))
+g.cnt.f_bh <- filtered_p(g.cnt.f.pvals, method="BH",
+g.cnt.vars <- rowVars(g.cnt.df,factor(groups))
 hist(g.cnt.fstats$p.value,col=4)
 p2 <- rowttests(g.cnt.ma,factor(groups))$p.value
 theta <- seq(0, .5, .1)
@@ -655,8 +608,8 @@ data(trees)
 
 
 ```{r limma-voom}
-keep.cpm <- rowSums(cpm(g.cnt.matrix)>0.5) >= (length(groups)/2)
-counts2 <- g.cnt.matrix[keep.cpm,]
+keep.cpm <- rowSums(cpm(g.cnt.ma)>0.5) >= (length(groups)/2)
+counts2 <- g.cnt.ma[keep.cpm,]
 dgeObj <- DGEList(counts=counts2, group=groups)
 e.disp<-estimateDisp(dgeObj, design)
 exactTst <- exactTest(e.disp)
@@ -674,7 +627,7 @@ topTags(exactTst)
 
 
 # voom - ranked by lods
-y <- voom(g.cnt.matrix,design,plot=TRUE)
+y <- voom(g.cnt.ma,design,plot=TRUE)
 y
 fit <- lmFit(y,design)
 fit <- eBayes(fit)
@@ -684,7 +637,7 @@ o <- order(fit$lods[,2], decreasing=TRUE)
 sum(p.adjust(fit$p.value[,2],method="BH")<0.1)
 
 # limma trend - ranked by lods
-y <- cpm(g.cnt.matrix,log=TRUE) #prior.count=1)
+y <- cpm(g.cnt.ma,log=TRUE) #prior.count=1)
 fit <- lmFit(y,design,weights=NULL)
 fit <- eBayes(fit,trend=TRUE)
 dt <- decideTests(fit)
@@ -701,7 +654,7 @@ summary(dt)
 
 ```{r limma-voom-linear-models}
 
-dgel<- DGEList(counts=g.cnt.matrix, group=factor(groups))
+dgel<- DGEList(counts=g.cnt.ma, group=factor(groups))
 dge.norm <- calcNormFactors(dgel)
 plotMDS(dge.norm, method="bcv", col=as.numeric(dge.norm$samples$group))
 
@@ -724,8 +677,8 @@ length(de.common)
  #head(tfit$genes$SYMBOL[de.common], n = 20)
 vennDiagram(f.bayes.dt[, 1:2], circle.col = c("orange", "purple"),main=paste("Venn Diagram of the overlapping gene expression between", over, "and", under))
 
-lm<-lmFit(g.cnt.matrix,design)
-fit.cnt <- eBayes(lmFit(g.cnt.matrix,design))
+lm<-lmFit(g.cnt.ma,design)
+fit.cnt <- eBayes(lmFit(g.cnt.ma,design))
 ebayes.dt <- decideTests(fit.cnt)
 summary(ebayes.dt)
 tfit <- treat(fit.cnt, lfc = 1)
@@ -793,7 +746,7 @@ topTags(exactTst)
 
 
 # voom - ranked by lods
-y <- voom(g.cnt.matrix,design,plot=FALSE)
+y <- voom(g.cnt.ma,design,plot=FALSE)
 fit <- lmFit(y,design)
 fit <- eBayes(fit)
 dt <- decideTests(fit)
@@ -802,7 +755,7 @@ o <- order(fit$lods[,2], decreasing=TRUE)
 sum(p.adjust(fit$p.value[,2],method="BH")<0.1)
 
 # limma trend - ranked by lods
-y <- cpm(g.cnt.matrix,log=TRUE) #prior.count=1)
+y <- cpm(g.cnt.ma,log=TRUE) #prior.count=1)
 fit <- lmFit(y,design,weights=NULL)
 fit <- eBayes(fit,trend=TRUE)
 dt <- decideTests(fit)
@@ -929,3 +882,21 @@ ggplot(data = pow_n,
   geom_line()
 
 ```
+
+```{r}
+
+# get entrez ids
+g.count.df$EntrezID <- mapIds(org.Hs.eg.db,
+                              keys=rownames(g.count.df),
+                              column="ENTREZID",keytype="SYMBOL",
+                              multiVals="first")
+
+# get go ids
+g.count.df$GOid <- mapIds(org.Hs.eg.db,
+                          keys=rownames(g.count.df),
+                          column="GO",keytype="SYMBOL",
+                          multiVals="first")
+
+
+```
+
