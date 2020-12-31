@@ -66,6 +66,7 @@ replicates.info$lanes<-c("L1T4","L1T4","L1T4","L5T8","L5T8","L5T8","L1T4","L5T8"
 replicates.info<-replicates.info %>%
    mutate(batch.effects = paste(sample_name, lanes, sep="_"))
 batcheffects <- as.factor(replicates.info$batch.effects)
+replicates.info<-replicates.info[,-c(1,2,3)]
 replicates.info
 grp.factor<-c(rep(0,9),rep(1,9))
 grp.fac<-factor(grp.factor, levels=0:1, labels=c(under, over))
@@ -124,20 +125,24 @@ over.grp.l.fpkm.ma<-s.g.l.rep.matrix[,over.group]
 under.grp.l.fpkm.ma<-s.g.h.rep.matrix[,under.group]
 under.grp.h.fpkm.ma<-s.g.l.rep.matrix[,under.group]
 
-#sig.cnt.df<-g.cnt.df[which(row.names(g.cnt.df) %in% sig_genes_exp.df$gene_id),]
-```
 
-```{r simple-design-matrix-initialize}
-replicates.info;replicates.df
-replicates.info$group<-replicates.info$sample_name
-design <- model.matrix(~group-1, data=replicates.info)
-row.names(design) <- samples
-# contrast matrix
-#contr.matrix <- makeContrasts(lutsVSctrl = "groupCTRL" - "groupLUTS",
-#                              levels = row.names(design))
-#contr.matrix
-```
+gene.exp.diff<-data.frame(genes=genes_exp.diff$gene_id,
+                          logFC=genes_exp.diff$log2_fold_change,
+                          q_value=genes_exp.diff$q_value)
+gene.exp.diff<-gene.exp.diff[!duplicated(gene.exp.diff$genes),]
 
+# get go ids
+gene.exp.diff$ENTREZIDs<- mapIds(org.Hs.eg.db,
+                           keys=as.character(gene.exp.diff$genes),
+                           column="ENTREZID",keytype="SYMBOL",
+                           multiVals="first")
+gene.exp.diff<-gene.exp.diff[!duplicated(gene.exp.diff$ENTREZIDs),]
+gene.exp.diff<-gene.exp.diff[!is.na(gene.exp.diff$ENTREZIDs),]
+inds <- which(!is.na(gene.exp.diff$ENTREZIDs))
+# factors for conditions
+gene.exp.diff<-gene.exp.diff[inds,]
+head(gene.exp.diff)
+```
 
 ```{r batch-effect-design-matrix-initialize}
 # design matrix 
@@ -156,36 +161,72 @@ design
 contr.matrix
 ```
 
-```{r f-test-for-normally-distributed-diff-expr-data}
-g.cnt.ma<-g.cnt.df[row.names(g.count.df),]
+
+```{r filtering-gene-expr, fig.margin=TRUE, fig.align="center", message=FALSE, warning=FALSE, echo=FALSE}
+d<- DGEList(counts=g.count.ma, group=colnames(g.count.ma),genes = row.names(g.count.ma))
+lanes<-replicates.info$lanes
+groups<-replicates.info$sample_name
+batch.effects<-replicates.info$batch.effects
+samples<-replicates.info$rep_name
+lib.size<-replicates.info$total_mass
+d$replicates.info$lib.size<-lib.size
+d$replicates.info$samples<-samples
+d$replicates.info$batch.effects<-batch.effects
+d$replicates.info$lanes<-lanes
+d$replicates.info$groups<-groups
 # Classic Approach without filtering
-d<- DGEList(counts=g.cnt.ma, group=factor(groups), remove.zeros=TRUE,genes = row.names(g.cnt.ma))
-g.CPM.ma <- cpm(d, prior.count=1)
-g.LCPM.ma <- cpm(d, log=TRUE, prior.count=1)
+g.CPM.ma <- cpm(d)
+g.LCPM.ma <- cpm(d, log=TRUE)
+L<-mean(d$replicates.info$lib.size)*1e-6
+M<-median(d$replicates.info$lib.size)*1e-6
+c(L, M)
+
+g.CPM.ma <- cpm(g.count.ma, log=TRUE)
+lcpm.cutoff <- log2(10/M + 2/L)
+nsamples <- ncol(g.count.ma)
+col <- brewer.pal(nsamples/2, "Paired")
+plot(density(g.CPM.ma[,1]), col=col[1], lwd=2, ylim=c(0,0.99), las=2, main="", xlab="")
+title(main="Density of Log Counts per Million by Sample (Before filtering)", xlab="Log-cpm")
+abline(v=lcpm.cutoff, lty=3)
+
+for (i in 2:nsamples){
+den <- density(g.CPM.ma[,i])
+lines(den$x, den$y, col=col[i], lwd=2)}
+legend("topright", samples, text.col=col, bty="n")
+
 ## filter genes with less than 1 cpm in at least 9 samples
-keep.exprs <- rowSums(d$counts > 1) >= length(colnames(g.cnt.df))/2
-table(keep.exprs)
-# Subset the rows of countdata to keep the more highly expressed genes
-g.f.LCPM.ma <- as.data.frame(g.LCPM.ma[keep.exprs,])
+table(rowSums(d$counts == 0) >= length(colnames(g.count.df))/2)
+keep.exprs<-filterByExpr(d,group=groups)
+d<-d[keep.exprs,,keep.lib.sizes=FALSE]
+d2<- DGEList(counts=d$counts, group=d$groups,genes = row.names(d$counts))
+g.f.LCPM.ma <- cpm(d2, log=TRUE)
 
-## filter the data enough to perform Shapiro-Wilk normality test
-keep.cpm <- rowSums(cpm(g.cnt.df) > 1) >= (length(colnames(g.cnt.df)/2))
-table(keep.cpm)
-g.f.cnt.ma <- g.cnt.ma[keep.cpm,]
+col <- brewer.pal(c(nsamples/2), "Paired")
+plot(density(g.f.LCPM.ma[,1]), col=col[1], lwd=2, ylim=c(0,0.99), las=2, main="", xlab="")
+title(main="Density of Log Counts per Million by Sample (After filtering)", xlab="Log-cpm")
+abline(v=lcpm.cutoff, lty=3)
+for (i in 2:nsamples){
+den <- density(g.f.LCPM.ma[,i])
+lines(den$x, den$y, col=col[i], lwd=2)}
+legend("topright", samples, text.col=col, bty="n")
 
-# Test normality
-norm.1st.group<-apply(g.f.cnt.ma[1:round(nrow(g.f.cnt.ma)/3),], 1, function(x) shapiro.test(x)$p.value)
+```
+
+```{r Test-Normality}
+table(rowSums(g.cnt.ma == 0) >= length(colnames(g.count.df))/2)
+
+norm.1st.group<-apply(g.cnt.ma[1:round(nrow(g.cnt.ma)/3),], 1, function(x) shapiro.test(x)$p.value)
 sum(norm.1st.group < 0.05)
-norm.2nd.group<-apply(g.f.cnt.ma[c(round(nrow(g.f.cnt.ma)/3):c(2*round(nrow(g.f.cnt.ma)/3))),], 1, function(x) shapiro.test(x)$p.value)
+norm.2nd.group<-apply(g.f.LCPM.ma[c(round(nrow(g.f.LCPM.ma)/3):c(2*round(nrow(g.f.LCPM.ma)/3))),], 1, function(x) shapiro.test(x)$p.value)
 sum(norm.2nd.group < 0.05)
-norm.3rd.group<-apply(g.f.cnt.ma[c(((2*round(nrow(g.f.cnt.ma)/3))+1):nrow(g.f.cnt.ma)),], 1, function(x) shapiro.test(x)$p.value)
+norm.3rd.group<-apply(g.f.LCPM.ma[c(((2*round(nrow(g.f.LCPM.ma)/3))+1):nrow(g.f.LCPM.ma)),], 1, function(x) shapiro.test(x)$p.value)
 sum(norm.3rd.group < 0.05)
 
 # visualize 
-g.u.cnt.mu = rowMeans(as.matrix(g.f.cnt.ma[,under.group]))
-g.o.cnt.mu = rowMeans(as.matrix(g.f.cnt.ma[,over.group]))
-g.u.cnt.vars = rowVars(as.matrix(g.f.cnt.ma[,under.group]))
-g.o.cnt.vars = rowVars(as.matrix(g.f.cnt.ma[,over.group]))
+g.u.cnt.mu = rowMeans(as.matrix(g.f.LCPM.ma[,under.group]))
+g.o.cnt.mu = rowMeans(as.matrix(g.f.LCPM.ma[,over.group]))
+g.u.cnt.vars = rowVars(as.matrix(g.f.LCPM.ma[,under.group]))
+g.o.cnt.vars = rowVars(as.matrix(g.f.LCPM.ma[,over.group]))
 
 plot(log2(g.u.cnt.vars) ~ log2(g.u.cnt.mu),
      main=c("Mean-Variance of ", under, "Gene Expression"),
@@ -198,10 +239,10 @@ plot(log2(g.o.cnt.vars) ~ log2(g.o.cnt.mu),
      ylab=c("Variance of", over),
      cex = .5, col = "dark red")
 
-g.f.cnt.sds <- rowSds(as.matrix(g.f.cnt.ma))
+g.f.cnt.sds <- rowSds(as.matrix(g.f.LCPM.ma))
 
-g.cnt.fstats = rowFtests(as.matrix(g.f.cnt.ma), as.factor(groups))
-g.cnt.tstats<-rowttests(as.matrix(g.f.cnt.ma),factor(groups))
+g.cnt.fstats = rowFtests(as.matrix(g.f.LCPM.ma), as.factor(groups))
+g.cnt.tstats<-rowttests(as.matrix(g.f.LCPM.ma),factor(groups))
 g.cnt.f.pvals<-g.cnt.fstats$p.value
 g.cnt.t.pvals<-g.cnt.tstats$p.value < 0.5
 length(g.cnt.f.pvals)
@@ -212,8 +253,8 @@ length(g.cnt.t.pvals)
 
 ```{r edgeR-data-filtering-and-diff-expr}
 library(edgeR)
-dgel<- DGEList(counts=g.cnt.ma, group=factor(lanes))
-dgel<- DGEList(counts=g.cnt.ma, group=batcheffects)
+dgel<- DGEList(counts=g.count.ma, group=factor(lanes))
+dgel<- DGEList(counts=g.count.ma, group=batcheffects)
 
 no_norm <- estimateCommonDisp(dgel)
 #perform the DE test
@@ -223,14 +264,15 @@ topTags(no_norm)
 summary(decideTestsDGE(no_norm,p.value=0.05))
 com = summary(decideTestsDGE(no_norm,p.value=0.05))
 sink("de_common_dispersion.txt")
-topTags(no_norm,n=length(groups))
+topTags(no_norm,n=length(batcheffects))
 sink()
  
 getPriorN(dgel)
+dgel <- estimateCommonDisp(dgel)
 dgel <- estimateTagwiseDisp(dgel, prop.used=0.5, grid.length=500)
 png(file="tgw_disp_vs_log_conc.png", height=1200, width=1200)
-plot(log2(dgel$conc$conc.common),dgel$tagwise.dispersion,panel.first=grid())
-abline(h=dgel$common.dispersion,col="dodgerblue",lwd=3)
+#plot(log2(dgel$counts),dgel$tagwise.dispersion,panel.first=grid())
+#abline(h=dgel$common.dispersion,col="dodgerblue",lwd=3)
 de.tgw <- exactTest(dgel)
 topTags(de.tgw)
 summary(decideTestsDGE(de.tgw, p.value=0.01))
@@ -239,19 +281,17 @@ bob = summary(decideTestsDGE(de.tgw,p.value=0.05))
 total = bob[1] + bob[3]
  
 sink("de_tagwise_dispersion.txt")
-topTags(de.tgw,n=total)
 #how many differentially expressed transcripts?
 table(p.adjust(dgel$table$PValue<0.01))
-dgel <- calcNormFactors(dgel)
-dgel <- estimateCommonDisp(dgel, verbose=T)
-#Disp = 0.01932 , BCV = 0.139
-dgel <- estimateTagwiseDisp(dgel)
+dgel<-calcNormFactors(dgel)
+dgel<-estimateCommonDisp(dgel, verbose=T)
+dgel<-estimateTagwiseDisp(dgel)
 dgel
 #the range of values for the tagwise dispersion
 summary(dgel$tagwise.dispersion)
 TMM <- calcNormFactors(dgel, method="TMM")
 TMM <- estimateCommonDisp(TMM)
-TMM <- exactTest(TMM)
+#TMM <- exactTest(TMM)
 table(p.adjust(TMM$table$PValue<0.01))
 RLE <- calcNormFactors(dgel, method="RLE")
 RLE
@@ -278,12 +318,18 @@ my_de_uq <- get_de(uq$table, 0.05)
 gplots::venn(list(no_norm = my_de_no_norm, TMM = my_de_tmm, RLE = my_de_rle, UQ = my_de_uq))
 gplots::venn(list(TMM = my_de_tmm, RLE = my_de_rle, UQ = my_de_uq))
 
+```
+```{r}
 #plotting my log2 mean expression against edgeR's calculation
 #plot(d$AveLogCPM, log2(mock_mean), pch='.')
+qlf <- glmQLFTest(fit, coef=2)
+> go <- goana(qlf, species="Mm")
+> topGO(go, sort="up")
+> keg <- kegga(qlf, species="Mm")
+> topKEGG(keg, sort="up")
 ```
 
 ```{r limma-model-failure}
-
 #dge.norm <- calcNormFactors(dgel)
 log2.cpm <- voom(dgel,design,plot=FALSE)
 log2.cpm
@@ -329,6 +375,8 @@ topTags(et)
 o.sig.filt <- subset(diff_exp.et.df, (PValue < 0.05))
 dim(o.sig.filt)
 ```
+
+
 
 ```{r DESeq-method}
 library("DESeq")

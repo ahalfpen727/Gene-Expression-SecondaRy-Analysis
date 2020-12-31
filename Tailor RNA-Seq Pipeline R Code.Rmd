@@ -149,7 +149,7 @@ mySigGenes<-getSig(cuff,x=over,y=under,alpha=.05,level='genes')
 sigGenes<-getGenes(cuff, mySigGenes)
 sig.genes.exp.diff<-diffData(sigGenes)
 sig_genes_exp.diff<-subset(sig.genes.exp.diff,
-   abs(sig.genes.exp.diff$log2_fold_change) > 4 &
+   abs(sig.genes.exp.diff$log2_fold_change) > 1 &
  sig.genes.exp.diff$q_value < 0.01)
 ma<-max(sig_genes_exp.diff$log2_fold_change[is.finite(sig_genes_exp.diff$log2_fold_change)])
 mi<-min(sig_genes_exp.diff$log2_fold_change[is.finite(sig_genes_exp.diff$log2_fold_change)])
@@ -167,7 +167,7 @@ sig.g.o.cnt.df<-sig.cnt.df[,over.group]
 sig.g.u.cnt.df<-sig.cnt.df[,under.group]
 
 sig.h.genes_exp.diff<-subset(sig_genes_exp.diff,
- sig_genes_exp.diff$log2_fold_change > 2 & sig_genes_exp.diff$q_value < 0.05)
+ sig_genes_exp.diff$log2_fold_change > 1 & sig_genes_exp.diff$q_value < 0.05)
 
 sig.l.genes_exp.diff<-subset(sig_genes_exp.diff,
  sig_genes_exp.diff$log2_fold_change < 0 & sig_genes_exp.diff$q_value < 0.05)
